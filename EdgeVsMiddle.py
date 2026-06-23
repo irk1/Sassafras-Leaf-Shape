@@ -112,7 +112,7 @@ for Source in scan_files:
         
         # --- TUNING PARAMETERS ---
         flare_sensitivity = 1.35  # Multiplier (e.g., 1.35 = 35% wider than the petiole)
-        min_petiole_length_px = 0.1 * leaf_length_px  # Must travel 4% of leaf length before checking
+        min_petiole_length_px = 0.1 * leaf_length_px  # Must travel 10% of leaf length before checking
         baseline_calc_steps = max(15, int(0.015 * N))  # Dynamic physical distance to sample base width
         consecutive_triggers_needed = max(3, int(0.005 * N)) # Must STAY wide for N steps to ignore bumps
         # -------------------------
