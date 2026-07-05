@@ -133,5 +133,8 @@ All numerical calculations are exported cleanly to `leaf_comprehensive_morphomet
 | `Leaf_Length_cm` | Float | Calibrated real-world length of the primary growth axis. |
 | `Leaf_Width_cm` | Float | Calibrated real-world width of the secondary growth axis. |
 | `Petiole_Length_cm` | Float | Calibrated anatomical length of the petiole path. |
+| `CoG_to_Petiole_End_cm` | Float | Calibrated straight-line metric distance from the center of mass to the stem base. |
 | `Length_Width_Ratio` | Float | Aspect ratio indicating overall leaf elongation. |
+| `Pixel_Edge_Area_Ratio` | Float | Raw ratio of perimeter pixels relative to area pixels. |
+| `Physical_Edge_Area_Ratio_cm1` | Float | Calibrated boundary-to-surface-area ratio in metric units. |
 | `Degree_of_Lobing` | Float | Geometric ratio ($0.0$ to $1.0$) indicating edge complexity and sinus depths. |
