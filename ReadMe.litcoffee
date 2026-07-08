@@ -27,15 +27,21 @@ Upon its first execution, the program sets up a standardized localized workspace
 
 ## Technical Pipeline: How It Works
 
-    [ Raw Image Input ] ──> [ Metadata DPI Extraction ] ──> [ Otsu Binarization ]
-                                                                    │
-                                                                    ▼
-    [ Rotated Bounding Box ] <── [ Moment Centroid ] <── [ Contour Clean-up ]
-              │
-              ▼
-    [ Petiole Stem Pathing ] ──> [ Sustained Flare Check ] ──> [ CSV Database & Overlay Export ]
-
-
+```text
+[ Raw Image Input ] ─────> [ Metadata DPI Extraction ] ─────> [ Grayscale & Otsu Threshold ]
+                                                                             │
+                                                                             ▼
+[ Area & Perimeter ] <──── [ Area Filter (<0.5% Canvas) ] <──── [ Morphological Clean-up ]
+         │
+         ▼
+[ Moment Centroid ] ─────> [ Rotated Bounding Box (L/W) ] ─────> [ Stem Terminus Localization ]
+                                                                             │
+                                                                             ▼
+[ Physical Conversion ] <─── [ Stem Flare Detection ] <─────── [ Sliding-Window Pathing ]
+         │
+         ▼
+[ Convex Hull & Lobing ] ──> [ MD5 Cryptographic Hashing ] ──> [ CSV Database & UI Export ]
+```
 ### 1. Preprocessing & Segmentation
 1. **Physical Scaling Calculation:** The system attempts to read the native resolution array from the image metadata. If missing, it defaults to $1200\text{ DPI}$ (This Can Be Modified At Line 24). Conversion ratios are established dynamically:
 $$\text{Pixels\_per\_cm}=\frac{\text{DPI}}{2.54}$$

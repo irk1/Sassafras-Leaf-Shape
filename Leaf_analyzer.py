@@ -6,12 +6,22 @@ import os
 import hashlib
 import csv
 from PIL import Image
+import argparse
+from datetime import datetime
+
+# --- RUNTIME ARGUMENTS ---
+parser = argparse.ArgumentParser(description="Leaf Morphometrics Analysis")
+parser.add_argument('--petiole', action='store_true', help="Enable advanced petiole tracking and calculations")
+parser.add_argument('--show', action='store_true', help="Display annotated images in popup windows")
+parser.add_argument('--new-csv', action='store_true', help="Generate a new timestamped CSV instead of overwriting the default")
+args = parser.parse_args()
+# -------------------------
 
 # --- BYPASS PILLOW DECOMPRESSION BOMB LIMIT ---
 Image.MAX_IMAGE_PIXELS = None 
 # ----------------------------------------------
 
-scan_folder = 'Test Images'
+scan_folder = 'Scans'
 annotated_folder = 'Annotated Scans'
 os.makedirs(scan_folder, exist_ok=True)
 os.makedirs(annotated_folder, exist_ok=True)
@@ -23,6 +33,7 @@ if not scan_files:
 
 DEFAULT_DPI = 1200 
 csv_records = []
+seen_hashes = set() # Track hashes to prevent collisions
 
 for Source in scan_files:
     if not Source.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.tif')):
@@ -81,7 +92,7 @@ for Source in scan_files:
         perimeter_px = cv.arcLength(cnt, True)
         pixel_edge_area_ratio = perimeter_px / area_px if area_px > 0 else 0
         
-        # Center of Gravity (Centroid)
+        # Center of Mass (Centroid)
         M = cv.moments(cnt)
         if M["m00"] != 0:
             cX = int(M["m10"] / M["m00"])
@@ -89,7 +100,7 @@ for Source in scan_files:
         else:
             x_b, y_b, w_b, h_b = cv.boundingRect(cnt)
             cX, cY = x_b + w_b // 2, y_b + h_b // 2
-        cog = np.array([cX, cY], dtype=np.float32)
+        com = np.array([cX, cY], dtype=np.float32)
         
         # Length & Width via Rotated Bounding Box
         rect = cv.minAreaRect(cnt)
@@ -98,88 +109,95 @@ for Source in scan_files:
         leaf_width_px = min(rect_w, rect_h)
         lw_ratio = leaf_length_px / leaf_width_px if leaf_width_px > 0 else 0
         
-        # Advanced Petiole Sizing via Vector Tracking
-        cnt_points = cnt.reshape(-1, 2)
-        distances_to_cog = np.linalg.norm(cnt_points - cog, axis=1)
-        idx_petiole_end = np.argmax(distances_to_cog)
-        p_end = cnt_points[idx_petiole_end]  # Stem attachment point
-        
-        cog_to_petiole_end_px = float(distances_to_cog[idx_petiole_end])
-        
-        # === MODIFICATION START: CURVED PETIOLE INTEGRATION ===
-        N = len(cnt_points)
-        max_search = int(N * 0.35)  
-        
-        # --- TUNING PARAMETERS ---
-        flare_sensitivity = 1.35  # Multiplier (e.g., 1.35 = 35% wider than the petiole)
-        min_petiole_length_px = 0.1 * leaf_length_px  # Must travel 10% of leaf length before checking
-        baseline_calc_steps = max(15, int(0.015 * N))  # Dynamic physical distance to sample base width
-        consecutive_triggers_needed = max(3, int(0.005 * N)) # Must STAY wide for N steps to ignore bumps
-        # -------------------------
-        
+        # Default Petiole Initialization
         petiole_length_px = 0.0
-        curved_path = [p_end.astype(np.float32)]
-        p_flair = p_end.copy()
-        curr_idx_B_offset = 1
-        
-        base_widths = []
-        trigger_count = 0
-        
-        for i in range(1, max_search):
-            idx_A = (idx_petiole_end + i) % N
-            pt_A = cnt_points[idx_A]
+        com_to_petiole_end_px = 0.0
+        p_end = None
+        p_flair = None
+        curved_path = []
+
+        if args.petiole:
+            # Advanced Petiole Sizing via Vector Tracking
+            cnt_points = cnt.reshape(-1, 2)
+            distances_to_com = np.linalg.norm(cnt_points - com, axis=1)
+            idx_petiole_end = np.argmax(distances_to_com)
+            p_end = cnt_points[idx_petiole_end]  # Stem attachment point
             
-            best_j_offset = curr_idx_B_offset
-            min_w = float('inf')
+            com_to_petiole_end_px = float(distances_to_com[idx_petiole_end])
             
-            # Widened search window to accommodate high-res shifting
-            start_j = max(1, curr_idx_B_offset - 15)
-            end_j = min(max_search, curr_idx_B_offset + 35)
+            # === MODIFICATION START: CURVED PETIOLE INTEGRATION ===
+            N = len(cnt_points)
+            max_search = int(N * 0.35)  
             
-            for j in range(start_j, end_j):
-                idx_B = (idx_petiole_end - j) % N
-                pt_B = cnt_points[idx_B]
-                w = np.linalg.norm(pt_A - pt_B)
-                if w < min_w:
-                    min_w = w
-                    best_j_offset = j
-                    
-            curr_idx_B_offset = best_j_offset
-            idx_B_final = (idx_petiole_end - curr_idx_B_offset) % N
-            pt_B_final = cnt_points[idx_B_final]
+            # --- TUNING PARAMETERS ---
+            flare_sensitivity = 1.35  # Multiplier (e.g., 1.35 = 35% wider than the petiole)
+            min_petiole_length_px = 0.1 * leaf_length_px  # Must travel 10% of leaf length before checking
+            baseline_calc_steps = max(15, int(0.015 * N))  # Dynamic physical distance to sample base width
+            consecutive_triggers_needed = max(3, int(0.005 * N)) # Must STAY wide for N steps to ignore bumps
+            # -------------------------
             
-            local_width = min_w
-            local_center = (pt_A + pt_B_final) / 2.0
+            curved_path = [p_end.astype(np.float32)]
+            p_flair = p_end.copy()
+            curr_idx_B_offset = 1
             
-            step_dist = np.linalg.norm(local_center - curved_path[-1])
-            petiole_length_px += step_dist
-            curved_path.append(local_center)
+            base_widths = []
+            trigger_count = 0
             
-            # Phase 1: Build a robust statistical baseline using the Median (ignores cut-point noise)
-            if i <= baseline_calc_steps:
-                base_widths.append(local_width)
-                baseline = np.median(base_widths)
+            for i in range(1, max_search):
+                idx_A = (idx_petiole_end + i) % N
+                pt_A = cnt_points[idx_A]
                 
-            # Phase 2: Look for sustained, continuous expansion
-            else:
-                if local_width > (baseline * flare_sensitivity) and petiole_length_px > min_petiole_length_px:
-                    trigger_count += 1
+                best_j_offset = curr_idx_B_offset
+                min_w = float('inf')
+                
+                # Widened search window to accommodate high-res shifting
+                start_j = max(1, curr_idx_B_offset - 15)
+                end_j = min(max_search, curr_idx_B_offset + 35)
+                
+                for j in range(start_j, end_j):
+                    idx_B = (idx_petiole_end - j) % N
+                    pt_B = cnt_points[idx_B]
+                    w = np.linalg.norm(pt_A - pt_B)
+                    if w < min_w:
+                        min_w = w
+                        best_j_offset = j
+                        
+                curr_idx_B_offset = best_j_offset
+                idx_B_final = (idx_petiole_end - curr_idx_B_offset) % N
+                pt_B_final = cnt_points[idx_B_final]
+                
+                local_width = min_w
+                local_center = (pt_A + pt_B_final) / 2.0
+                
+                step_dist = np.linalg.norm(local_center - curved_path[-1])
+                petiole_length_px += step_dist
+                curved_path.append(local_center)
+                
+                # Phase 1: Build a robust statistical baseline using the Median (ignores cut-point noise)
+                if i <= baseline_calc_steps:
+                    base_widths.append(local_width)
+                    baseline = np.median(base_widths)
+                    
+                # Phase 2: Look for sustained, continuous expansion
                 else:
-                    # If the width shrinks again, it was just a bump. Reset the trigger.
-                    trigger_count = 0 
-                    
-                # If it stays expanded for the required number of steps, we found the true blade
-                if trigger_count >= consecutive_triggers_needed:
-                    # Step back visually to the exact point the flare started
-                    flare_idx = max(0, len(curved_path) - consecutive_triggers_needed)
-                    p_flair = curved_path[flare_idx].astype(int)
-                    
-                    # Trim the visual path line so it doesn't bleed into the blade
-                    curved_path = curved_path[:flare_idx+1]
-                    petiole_length_px = sum(np.linalg.norm(curved_path[k] - curved_path[k-1]) for k in range(1, len(curved_path)))
-                    break
-                    
-        # === MODIFICATION END =================================
+                    if local_width > (baseline * flare_sensitivity) and petiole_length_px > min_petiole_length_px:
+                        trigger_count += 1
+                    else:
+                        # If the width shrinks again, it was just a bump. Reset the trigger.
+                        trigger_count = 0 
+                        
+                    # If it stays expanded for the required number of steps, we found the true blade
+                    if trigger_count >= consecutive_triggers_needed:
+                        # Step back visually to the exact point the flare started
+                        flare_idx = max(0, len(curved_path) - consecutive_triggers_needed)
+                        p_flair = curved_path[flare_idx].astype(int)
+                        
+                        # Trim the visual path line so it doesn't bleed into the blade
+                        curved_path = curved_path[:flare_idx+1]
+                        petiole_length_px = sum(np.linalg.norm(curved_path[k] - curved_path[k-1]) for k in range(1, len(curved_path)))
+                        break
+                        
+            # === MODIFICATION END =================================
 
         # --- 2. SECONDARY CALIBRATION (CENTIMETERS) ---
         actual_area_cm2 = area_px / pixels_per_cm2
@@ -188,7 +206,7 @@ for Source in scan_files:
         leaf_length_cm = leaf_length_px / pixels_per_cm
         leaf_width_cm = leaf_width_px / pixels_per_cm
         petiole_length_cm = petiole_length_px / pixels_per_cm
-        cog_to_petiole_end_cm = cog_to_petiole_end_px / pixels_per_cm
+        com_to_petiole_end_cm = com_to_petiole_end_px / pixels_per_cm
         
         # Dimensionless Shape Values
         hull = cv.convexHull(cnt)
@@ -196,11 +214,19 @@ for Source in scan_files:
         solidity = area_px / hull_area if hull_area > 0 else 0
         degree_of_lobing = 1.0 - solidity
         
-        # Generate repeatable unique Hash mapping
+        # Generate repeatable unique Hash mapping with collision prevention
         hasher = hashlib.md5()
         hasher.update(filename.encode('utf-8'))
         hasher.update(cnt.tobytes())
-        leaf_hash = hasher.hexdigest()[:8].upper()
+        base_hash = hasher.hexdigest()[:8].upper()
+        
+        leaf_hash = base_hash
+        collision_counter = 1
+        while leaf_hash in seen_hashes:
+            leaf_hash = f"{base_hash}-{collision_counter}"
+            collision_counter += 1
+            
+        seen_hashes.add(leaf_hash)
         
         # --- DRAW VISUAL ANNOTATIONS ---
         cv.drawContours(output_img, [cnt], -1, (0, 255, 0), contour_thickness)
@@ -208,30 +234,23 @@ for Source in scan_files:
         cv.drawContours(output_img, [box_points], 0, (100, 100, 100), max(1, int(1 * sf)))
         
         # === MODIFICATION START: DRAWING CURVED PATH ===
-        if len(curved_path) > 1:
+        if args.petiole and len(curved_path) > 1:
             points_poly = np.array(curved_path, dtype=np.int32).reshape((-1, 1, 2))
             cv.polylines(output_img, [points_poly], False, (0, 140, 255), line_thickness)
         # === MODIFICATION END =========================
         
         cv.circle(output_img, (int(cX), int(cY)), int(3 * sf), (255, 0, 0), -1)
-        cv.circle(output_img, (int(p_end[0]), int(p_end[1])), int(3 * sf), (0, 0, 255), -1)
-        cv.circle(output_img, (int(p_flair[0]), int(p_flair[1])), int(3 * sf), (255, 0, 255), -1)
-       
-        """ Blue Dot: Theoretical Center of Gravity (Centroid).
-
-Red Dot: Exact terminus point of the petiole tail (where it cuts from the stem).
-
-Magenta Dot: The exact spot where the leaf flairs out (transition boundary from petiole to blade).
-
-Orange Line: Direct vector measuring the distance from the Center of Gravity to the petiole tip.
-
-Thin Grey Rotated Box: Structural bounding box mapping length/width orientation axes. """
+        if args.petiole and p_end is not None and p_flair is not None:
+            cv.circle(output_img, (int(p_end[0]), int(p_end[1])), int(3 * sf), (0, 0, 255), -1)
+            cv.circle(output_img, (int(p_flair[0]), int(p_flair[1])), int(3 * sf), (255, 0, 255), -1)
+        
+        
         # --- UI DATA PANEL GENERATION (PIXEL DOMINANT) ---
         label_id = f"ID: {leaf_hash}"
         label_abs = f"Px A:{int(area_px)} | L:{int(leaf_length_px)} | W:{int(leaf_width_px)}"
-        label_petiole_px = f"Px Petiole L:{int(petiole_length_px)} | CoG->Stem:{int(cog_to_petiole_end_px)}"
+        label_petiole_px = f"Px Petiole L:{int(petiole_length_px)} | CoM->Stem:{int(com_to_petiole_end_px)}"
         label_phys = f"Cm A:{actual_area_cm2:.1f}cm2 | L:{leaf_length_cm:.1f}cm | W:{leaf_width_cm:.1f}cm"
-        label_petiole_cm = f"Cm Petiole L:{petiole_length_cm:.2f}cm | CoG->Stem:{cog_to_petiole_end_cm:.2f}cm"
+        label_petiole_cm = f"Cm Petiole L:{petiole_length_cm:.2f}cm | CoM->Stem:{com_to_petiole_end_cm:.2f}cm"
         label_ratios = f"L:W Ratio: {lw_ratio:.3f} | Lobing Deg: {degree_of_lobing:.4f}"
         
         text_size_1, _ = cv.getTextSize(label_id, cv.FONT_HERSHEY_SIMPLEX, font_scale_id, text_thickness_bold)
@@ -269,13 +288,13 @@ Thin Grey Rotated Box: Structural bounding box mapping length/width orientation 
             'Leaf_Length_Pixels': int(leaf_length_px),
             'Leaf_Width_Pixels': int(leaf_width_px),
             'Petiole_Length_Pixels': round(petiole_length_px, 2),
-            'CoG_to_Petiole_End_Pixels': round(cog_to_petiole_end_px, 2),
+            'CoM_to_Petiole_End_Pixels': round(com_to_petiole_end_px, 2),
             'Area_cm2': round(actual_area_cm2, 4),
             'Perimeter_cm': round(actual_perimeter_cm, 4),
             'Leaf_Length_cm': round(leaf_length_cm, 4),
             'Leaf_Width_cm': round(leaf_width_cm, 4),
             'Petiole_Length_cm': round(petiole_length_cm, 4),
-            'CoG_to_Petiole_End_cm': round(cog_to_petiole_end_cm, 4),
+            'CoM_to_Petiole_End_cm': round(com_to_petiole_end_cm, 4),
             'Length_Width_Ratio': round(lw_ratio, 6),
             'Pixel_Edge_Area_Ratio': round(pixel_edge_area_ratio, 8),
             'Physical_Edge_Area_Ratio_cm1': round(physical_edge_area_ratio, 4),
@@ -288,21 +307,27 @@ Thin Grey Rotated Box: Structural bounding box mapping length/width orientation 
     cv.imwrite(annotated_path, output_img)
     print(f"[SAVED ANNOTATION] -> {annotated_path}")
 
-    # Render localized notebook view window
-    output_rgb = cv.cvtColor(output_img, cv.COLOR_BGR2RGB)
-    plt.figure(figsize=(12, 10))
-    plt.imshow(output_rgb)
-    plt.axis('off')
-    plt.title(f"Comprehensive Pixel-Primary Morphometrics: {filename}")
-    plt.tight_layout()
-    #plt.show()
+    # Render localized notebook view window if --show is passed
+    if args.show:
+        output_rgb = cv.cvtColor(output_img, cv.COLOR_BGR2RGB)
+        plt.figure(figsize=(12, 10))
+        plt.imshow(output_rgb)
+        plt.axis('off')
+        plt.title(f"Comprehensive Pixel-Primary Morphometrics: {filename}")
+        plt.tight_layout()
+        plt.show()
 
 # --- EXPORT COMPLETE SHEET TO CSV ---
-csv_filename = 'leaf_comprehensive_morphometrics.csv'
+if args.new_csv:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_filename = f'leaf_comprehensive_morphometrics_{timestamp}.csv'
+else:
+    csv_filename = 'leaf_comprehensive_morphometrics.csv'
+
 csv_headers = [
     'Source_File', 'Scan_DPI', 'Leaf_Hash_ID', 
-    'Area_Pixels', 'Perimeter_Pixels', 'Leaf_Length_Pixels', 'Leaf_Width_Pixels', 'Petiole_Length_Pixels', 'CoG_to_Petiole_End_Pixels',
-    'Area_cm2', 'Perimeter_cm', 'Leaf_Length_cm', 'Leaf_Width_cm', 'Petiole_Length_cm', 'CoG_to_Petiole_End_cm',
+    'Area_Pixels', 'Perimeter_Pixels', 'Leaf_Length_Pixels', 'Leaf_Width_Pixels', 'Petiole_Length_Pixels', 'CoM_to_Petiole_End_Pixels',
+    'Area_cm2', 'Perimeter_cm', 'Leaf_Length_cm', 'Leaf_Width_cm', 'Petiole_Length_cm', 'CoM_to_Petiole_End_cm',
     'Length_Width_Ratio', 'Pixel_Edge_Area_Ratio', 'Physical_Edge_Area_Ratio_cm1', 'Degree_of_Lobing'
 ]
 
