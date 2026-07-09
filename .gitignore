@@ -17,3 +17,4 @@ Test Images/img002.tif
 Test Images/img003.tif
 /Annotated Scans
 *.tif
+/build
