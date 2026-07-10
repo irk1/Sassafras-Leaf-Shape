@@ -18,3 +18,12 @@ Test Images/img003.tif
 /Annotated Scans
 *.tif
 /build
+ActualData.csv
+Leaf_analyzer.spec
+safrole.jpg
+Untitled-1.png
+Safrole_Plotter.spec
+*.spec
+*.spec
+*.spec
+/plotter_env
