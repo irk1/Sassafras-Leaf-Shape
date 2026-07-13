@@ -161,7 +161,7 @@ All numerical calculations are exported cleanly to `leaf_comprehensive_morphomet
 ---
 # Safrole Program
 
-This documentation provides comprehensive instructions for operators utilizing the packaged, standalone executable version of the Column-Mapping Visualizer aka `Safrole_Plotter.exe`. This application is designed to ingest raw data columns from tabular text files (such as CSV or TSV files) and project them into structured, publication-quality 2D intensity grids (heatmaps) or 3D topological meshes (surfaces). Because the tool operates purely through a Command Line Interface (CLI), you do not need a Python environment or separate code compilers to run it; all required math, interpolation, and rendering engines are completely self-contained within the executable binary.
+This documentation provides comprehensive instructions for operators utilizing the packaged, standalone executable version of the Column-Mapping Visualizer aka `Safrole_Plotter.exe`. This application is designed to ingest raw data columns from tabular text files (such as CSV or TSV files) and project them into structured, publication-quality 2D intensity grids (heatmaps), 3D topological meshes (surfaces), or 2D/3D scatter plots. Because the tool operates purely through a Command Line Interface (CLI), you do not need a Python environment or separate code compilers to run it; all required math, interpolation, and rendering engines are completely self-contained within the executable binary.
 
 To execute the application, open your operating system's terminal (Command Prompt or PowerShell on Windows, Terminal on macOS/Linux), navigate to the directory containing your compiled binary, and run the executable by passing your data file path and desired operation configurations as arguments.
 
@@ -176,18 +176,32 @@ The behavior of the application is altered using explicit command switches. Thes
 * `--csv [PATH]` *(Required)*: Specifies the relative or absolute system path to your target data file.
 * `--x-col [INT]` *(Default: 0)*: Specifies the 0-indexed column position in your data file to read as the horizontal axis values.
 * `--y-col [INT]` *(Default: 1)*: Specifies the 0-indexed column position in your data file to read as the vertical axis values.
-* `--z-col [INT]` *(Default: 2)*: Specifies the 0-indexed column position in your data file to read as the weight/intensity values.
+* `--z-col [INT]` *(Default: 2)*: Specifies the 0-indexed column position in your data file to read as the weight/intensity values (ignored in standard 2D scatter mode).
 * `--delimiter [STR]` *(Default: `,`)*: The character pattern splitting the columns in your text file (e.g., use `\t` for tab-separated data).
+
+### Custom Axis Range Bounds
+
+* `--xlim [MIN] [MAX]`: Sets custom numerical boundaries for the X-axis (e.g., `--xlim 0 50`).
+* `--ylim [MIN] [MAX]`: Sets custom numerical boundaries for the Y-axis.
+* `--zlim [MIN] [MAX]`: Sets custom numerical boundaries for the Z-axis or colorbar.
+
+### Curve Fitting & Uncertainty (2D Scatter Only)
+
+* `--fit-degree [1 | 2 | 3 | 4 | 5]`: Fits an algebraic polynomial trendline to your 2D scatter coordinates. Automatically calculates and prints the resulting algebraic equation and R-squared (R^2) correlation metric directly to your terminal. 
+  * `1` = Linear (y = mx + b)
+  * `2` = Quadratic (y = ax^2 + bx + c)
+* `--fit-ci`: Calculates and projects a 95% confidence interval (an expanding uncertainty band) around your fitted trendline utilizing the dataset's covariance matrix.
 
 ### Axis Scaling & Transformations
 
 * `--scale-x`, `--scale-y`, `--scale-z` *(Default: 1.0)*: Decimal multipliers applied directly to your raw column data prior to rendering (useful for unit conversions like meters to millimeters).
-* `--log-x`, `--log-y`, `--log-z`: Flags that apply a base-10 logarithmic scaling mapping to the chosen axis. If your target column contains values less than or equal to zero, the application will automatically perform a linear offset shift ($+10^{-6}$) to prevent runtime mathematical exceptions.
+* `--log-x`, `--log-y`, `--log-z`: Flags that apply a base-10 logarithmic scaling mapping to the chosen axis. If your target column contains values less than or equal to zero, the application will automatically perform a linear offset shift (+10^-6) to prevent runtime mathematical exceptions.
 
 ### Presentation & Aesthetics
 
-* `--mode [surface | heatmap]` *(Default: surface)*: Chooses between a 3D perspective landscape geometry projection (`surface`) or a flat 2D top-down cell grid (`heatmap`).
-* `--res [INT]` *(Default: 100)*: Sets the structural internal interpolation matrix dimension ($N \times N$). Higher numbers create a smoother graphic output but demand more system memory during processing.
+* `--mode [surface | heatmap | scatter]` *(Default: surface)*: Chooses between a 3D perspective landscape geometry projection (`surface`), a flat 2D top-down cell grid (`heatmap`), or a raw point plot (`scatter`).
+* `--scatter-3d`: Forces `scatter` mode to render an interactive 3-variable spatial plot utilizing the X, Y, and Z columns together.
+* `--res [INT]` *(Default: 100)*: Sets the structural internal interpolation matrix dimension (N x N). Higher numbers create a smoother graphic output but demand more system memory during processing.
 * `--cmap [STR]` *(Default: viridis)*: Applies a standard color profile palette (e.g., `plasma`, `magma`, `inferno`, or `cividis`).
 * `--xlabel`, `--ylabel`, `--zlabel` *(Default: Automated)*: Replaces default structural axis descriptions with custom strings.
 * `--hide`: Runs data loading, parsing, and matrix scaling metrics natively in your terminal console without spawning a graphical display window.
@@ -196,26 +210,15 @@ The behavior of the application is altered using explicit command switches. Thes
 
 ## Detailed Step-by-Step Usage Examples
 
-
 ### Example 1: Basic 3D Surface Generation
 
 If you have a comma-separated file named `sensor_reading.csv` where column 1 holds your width data, column 2 holds length data, and column 4 holds temperature metrics, use:
 
 ```bash
 Safrole_Plotter.exe --csv sensor_reading.csv --x-col 0 --y-col 1 --z-col 3 --mode surface
-
-```
-
-### Example 2: Log-Scaled High-Resolution Intensity Map
-
-For highly sensitive, wide-spectrum power measurements stored in a tab-separated file (`wave_data.txt`), where you need a smooth, top-down 200x200 grid resolution, custom labels, and logarithmic processing on your intensity values:
-
-```bash
-Safrole_Plotter.exe --csv wave_data.txt --delimiter "\t" --x-col 0 --y-col 1 --z-col 2 --mode heatmap --res 200 --log-z --xlabel "Frequency (Hz)" --ylabel "Position (mm)" --zlabel "Power Output (dB)" --cmap plasma
-
 ```
 ---
 # Future Plans
 
 * **Manual Petiole Tracking:** A popup window where you place a series of points to track the petiole manually and the program connects the dots instead of finding the petiole itself.
-* **Refine Safrole_Plotter:** add range functions and even more user editable settings making it function better and familiar to users of a TI-84 
+* **Refine Safrole_Plotter:** 
