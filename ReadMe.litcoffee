@@ -185,12 +185,13 @@ The behavior of the application is altered using explicit command switches. Thes
 * `--ylim [MIN] [MAX]`: Sets custom numerical boundaries for the Y-axis.
 * `--zlim [MIN] [MAX]`: Sets custom numerical boundaries for the Z-axis or colorbar.
 
-### Curve Fitting & Uncertainty (2D Scatter Only)
+### Curve Fitting & Extrapolation (2D Scatter Only)
 
 * `--fit-degree [1 | 2 | 3 | 4 | 5]`: Fits an algebraic polynomial trendline to your 2D scatter coordinates. Automatically calculates and prints the resulting algebraic equation and R-squared (R^2) correlation metric directly to your terminal. 
   * `1` = Linear (y = mx + b)
   * `2` = Quadratic (y = ax^2 + bx + c)
-* `--fit-ci`: Calculates and projects a 95% confidence interval (an expanding uncertainty band) around your fitted trendline utilizing the dataset's covariance matrix.
+* `--project [FLOAT]`: Decimal fraction specifying how far to project/extrapolate the trendline beyond your actual dataset's boundaries (e.g., `--project 0.5` extends the line outward by 50% on both sides). Alternatively, utilizing `--xlim` will automatically project the line to meet your view bounds.
+* `--fit-ci`: Calculates and projects a 95% confidence interval using the dataset's covariance matrix. **This uncertainty band is exclusively rendered on the extrapolated portions of the line** to visually represent forecasting margins of error.
 
 ### Axis Scaling & Transformations
 

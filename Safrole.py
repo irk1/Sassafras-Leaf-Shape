@@ -32,12 +32,14 @@ def parse_args():
     range_group.add_argument('--ylim', type=float, nargs=2, metavar=('MIN', 'MAX'), help="Set custom Y-axis limits")
     range_group.add_argument('--zlim', type=float, nargs=2, metavar=('MIN', 'MAX'), help="Set custom Z-axis limits")
 
-    # --- CURVE FITTING (2D SCATTER ONLY) ---
-    fit_group = parser.add_argument_group('Curve Fitting (2D Scatter Mode Only)')
+    # --- CURVE FITTING & EXTRAPOLATION (2D SCATTER ONLY) ---
+    fit_group = parser.add_argument_group('Curve Fitting & Extrapolation (2D Scatter Mode Only)')
     fit_group.add_argument('--fit-degree', type=int, default=None, choices=[1, 2, 3, 4, 5],
                             help="Fit a polynomial curve to 2D scatter data. 1 = Linear, 2 = Quadratic, etc.")
+    fit_group.add_argument('--project', type=float, default=0.0, 
+                            help="Decimal fraction to extrapolate the fit line past the data range (e.g., 0.5 for a 50%% extension).")
     fit_group.add_argument('--fit-ci', action='store_true', 
-                            help="Plot a 95% confidence interval (expanding uncertainty band) around the fit line.")
+                            help="Plot a 95%% confidence uncertainty band ONLY on the extrapolated (projected) areas of the line.")
 
     # --- AXIS DATA SCALING ---
     scale_group = parser.add_argument_group('Axis Scaling')
@@ -164,9 +166,9 @@ def main():
                 print("Warning: Curve fitting functions are restricted to 2D scatter spaces. Skipping trendline.")
         else:
             print(f"Plotting {len(scaled_x)} points in 2D Scatter Mode...")
-            ax.scatter(scaled_x, scaled_y, color='darkblue', alpha=0.7, label='Data Points', edgecolors='none')
+            ax.scatter(scaled_x, scaled_y, color='darkblue', alpha=0.7, label='Data Points', edgecolors='none', zorder=5)
             
-            # Polynomial Curve Matching & Uncertainty
+            # Polynomial Curve Matching & Uncertainty Extrapolation
             if args.fit_degree is not None:
                 print(f"Calculating polynomial curve fit (Degree={args.fit_degree})...")
                 fit_mask = np.isfinite(scaled_x) & np.isfinite(scaled_y)
@@ -177,7 +179,7 @@ def main():
                 )
                 polynomial = np.poly1d(coefficients)
                 
-                # Calculate the R-squared value
+                # Calculate the R-squared value on the real data
                 y_fit = polynomial(scaled_x[fit_mask])
                 y_mean = np.mean(scaled_y[fit_mask])
                 ss_res = np.sum((scaled_y[fit_mask] - y_fit)**2)
@@ -190,15 +192,28 @@ def main():
                 print(f"R-squared: {r_squared:.4f}")
                 print("----------------------------------\n")
                 
-                # Generate the smooth line coordinates
-                x_line = np.linspace(scaled_x.min(), scaled_x.max(), 500)
+                # Determine boundaries for Extrapolation
+                x_min_data = scaled_x[fit_mask].min()
+                x_max_data = scaled_x[fit_mask].max()
+                x_span = x_max_data - x_min_data
+                
+                line_start = x_min_data - (x_span * args.project)
+                line_end = x_max_data + (x_span * args.project)
+                
+                # If explicit axis limits are provided, extend the line to meet the edge of the screen
+                if args.xlim:
+                    line_start = min(line_start, args.xlim[0])
+                    line_end = max(line_end, args.xlim[1])
+                
+                # Generate the smooth line coordinates across the entire (projected + real) range
+                x_line = np.linspace(line_start, line_end, 500)
                 y_line = polynomial(x_line)
                 
                 # Plot the solid trendline
                 fit_lbl = f"Fit Line (Degree {args.fit_degree} | R^2={r_squared:.2f})" if args.fit_degree > 1 else f"Linear Fit (R^2={r_squared:.2f})"
-                ax.plot(x_line, y_line, color='red', lw=2.5, linestyle='--', label=fit_lbl)
+                ax.plot(x_line, y_line, color='red', lw=2.5, linestyle='--', label=fit_lbl, zorder=4)
                 
-                # Calculate and project expanding uncertainty band
+                # Calculate and project expanding uncertainty band ONLY on extrapolated tails
                 if args.fit_ci:
                     # Construct a design matrix for the polynomial terms
                     TT = np.vstack([x_line**(args.fit_degree - i) for i in range(args.fit_degree + 1)]).T
@@ -209,7 +224,12 @@ def main():
                     
                     # Use 2 standard deviations for an approximate 95% confidence band
                     ci = 2 * y_std_error
-                    ax.fill_between(x_line, y_line - ci, y_line + ci, color='red', alpha=0.2, label="95% Confidence Band")
+                    
+                    # Boolean Mask: Only True where the line exists outside the boundaries of the real dataset
+                    extrapolated_mask = (x_line < x_min_data) | (x_line > x_max_data)
+                    
+                    ax.fill_between(x_line, y_line - ci, y_line + ci, where=extrapolated_mask, 
+                                    color='red', alpha=0.2, label="Extrapolation Uncertainty (95%)", zorder=3)
                 
                 ax.legend(loc='best')
 
