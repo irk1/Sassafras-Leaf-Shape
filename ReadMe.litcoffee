@@ -218,3 +218,4 @@ Safrole_Plotter.exe --csv wave_data.txt --delimiter "\t" --x-col 0 --y-col 1 --z
 # Future Plans
 
 * **Manual Petiole Tracking:** A popup window where you place a series of points to track the petiole manually and the program connects the dots instead of finding the petiole itself.
+* **Refine Safrole_Plotter:** add range functions and even more user editable settings making it function better and familiar to users of a TI-84 
