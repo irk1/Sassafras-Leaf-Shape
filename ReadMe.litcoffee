@@ -159,6 +159,62 @@ All numerical calculations are exported cleanly to `leaf_comprehensive_morphomet
 | `Physical_Edge_Area_Ratio_cm1` | Float | Calibrated boundary-to-surface-area ratio in metric units. |
 | `Degree_of_Lobing` | Float | Geometric ratio ($0.0$ to $1.0$) indicating edge complexity and sinus depths. |
 ---
+# Safrole Program
+
+This documentation provides comprehensive instructions for operators utilizing the packaged, standalone executable version of the Column-Mapping Visualizer aka `Safrole_Plotter.exe`. This application is designed to ingest raw data columns from tabular text files (such as CSV or TSV files) and project them into structured, publication-quality 2D intensity grids (heatmaps) or 3D topological meshes (surfaces). Because the tool operates purely through a Command Line Interface (CLI), you do not need a Python environment or separate code compilers to run it; all required math, interpolation, and rendering engines are completely self-contained within the executable binary.
+
+To execute the application, open your operating system's terminal (Command Prompt or PowerShell on Windows, Terminal on macOS/Linux), navigate to the directory containing your compiled binary, and run the executable by passing your data file path and desired operation configurations as arguments.
+
+---
+
+## Command Line Arguments Reference
+
+The behavior of the application is altered using explicit command switches. These arguments are classified into structural execution blocks:
+
+### Data Selection & Columns
+
+* `--csv [PATH]` *(Required)*: Specifies the relative or absolute system path to your target data file.
+* `--x-col [INT]` *(Default: 0)*: Specifies the 0-indexed column position in your data file to read as the horizontal axis values.
+* `--y-col [INT]` *(Default: 1)*: Specifies the 0-indexed column position in your data file to read as the vertical axis values.
+* `--z-col [INT]` *(Default: 2)*: Specifies the 0-indexed column position in your data file to read as the weight/intensity values.
+* `--delimiter [STR]` *(Default: `,`)*: The character pattern splitting the columns in your text file (e.g., use `\t` for tab-separated data).
+
+### Axis Scaling & Transformations
+
+* `--scale-x`, `--scale-y`, `--scale-z` *(Default: 1.0)*: Decimal multipliers applied directly to your raw column data prior to rendering (useful for unit conversions like meters to millimeters).
+* `--log-x`, `--log-y`, `--log-z`: Flags that apply a base-10 logarithmic scaling mapping to the chosen axis. If your target column contains values less than or equal to zero, the application will automatically perform a linear offset shift ($+10^{-6}$) to prevent runtime mathematical exceptions.
+
+### Presentation & Aesthetics
+
+* `--mode [surface | heatmap]` *(Default: surface)*: Chooses between a 3D perspective landscape geometry projection (`surface`) or a flat 2D top-down cell grid (`heatmap`).
+* `--res [INT]` *(Default: 100)*: Sets the structural internal interpolation matrix dimension ($N \times N$). Higher numbers create a smoother graphic output but demand more system memory during processing.
+* `--cmap [STR]` *(Default: viridis)*: Applies a standard color profile palette (e.g., `plasma`, `magma`, `inferno`, or `cividis`).
+* `--xlabel`, `--ylabel`, `--zlabel` *(Default: Automated)*: Replaces default structural axis descriptions with custom strings.
+* `--hide`: Runs data loading, parsing, and matrix scaling metrics natively in your terminal console without spawning a graphical display window.
+
+---
+
+## Detailed Step-by-Step Usage Examples
+
+
+### Example 1: Basic 3D Surface Generation
+
+If you have a comma-separated file named `sensor_reading.csv` where column 1 holds your width data, column 2 holds length data, and column 4 holds temperature metrics, use:
+
+```bash
+Safrole_Plotter.exe --csv sensor_reading.csv --x-col 0 --y-col 1 --z-col 3 --mode surface
+
+```
+
+### Example 2: Log-Scaled High-Resolution Intensity Map
+
+For highly sensitive, wide-spectrum power measurements stored in a tab-separated file (`wave_data.txt`), where you need a smooth, top-down 200x200 grid resolution, custom labels, and logarithmic processing on your intensity values:
+
+```bash
+Safrole_Plotter.exe --csv wave_data.txt --delimiter "\t" --x-col 0 --y-col 1 --z-col 2 --mode heatmap --res 200 --log-z --xlabel "Frequency (Hz)" --ylabel "Position (mm)" --zlabel "Power Output (dB)" --cmap plasma
+
+```
+---
 # Future Plans
 
 * **Manual Petiole Tracking:** A popup window where you place a series of points to track the petiole manually and the program connects the dots instead of finding the petiole itself.
