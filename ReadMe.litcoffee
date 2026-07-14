@@ -6,11 +6,15 @@ An automated, pixel-dominant computer vision pipeline designed for processing hi
 
 ## Key Features
 
+
+
 * **High-Resolution Specimen Management:** Safely bypasses default image decompression safeguards to process massive ultra-high-DPI botanical scans without memory faults.
 * **Metadata-Driven Calibration:** Automatically parses image header metadata to extract native DPI, converting raw pixel data into exact real-world metric units ($\text{cm}$ and $\text{cm}^2$).
 * **Dynamic UI Adaptability:** Universally auto-scales all visual overlays, contour weights, diagnostic dots, and information text displays relative to the dimensions of the input image. 
-* **Repeatable Specimen Hashing:** Generates deterministic, 8-character cryptographic alphanumeric IDs based on absolute contour topologies to prevent duplicate tracking or database row collisions.
+* **Repeatable Specimen Hashing:** Generates deterministic, 8-character cryptographic alphanumeric IDs based on absolute contour topologies of the raw, physical binarized footprint to prevent duplicate tracking or database row collisions.
 * **Noise-Resistant Petiole Pathing:** Employs an adaptive geometric search that tracks a leaf’s base width, filters out biological bumps using localized median tracking, and flags the exact transition to the leaf blade.
+* **Digital Blade Amputation:** Once the petiole flare is identified, the script digitally "severs" the stem contour from the leaf blade. Advanced shape metrics (such as Convex Hull and Degree of Lobing) are calculated exclusively on this pristine blade, preventing long stems from distorting biological shape profiles.
+* **Sessile (Stemless) Safeguard:** Features an automated baseline width check at the base of the leaf. If a specimen naturally lacks a petiole (sessile) or is broken, the script automatically aborts the tracking process to prevent accidental clipping of the leaf blade's natural apex.
 
 ---
 
@@ -40,8 +44,7 @@ You can modify its behavior by passing any combination of the following flags:
     python leaf_analyzer.py --petiole --show --new-csv
 ---
 ## Technical Pipeline: How It Works
-
-```text
+```
 [ Raw Image Input ] ─────> [ Metadata DPI Extraction ] ─────> [ Grayscale & Otsu Threshold ]
                                                                              │
                                                                              ▼
@@ -52,9 +55,9 @@ You can modify its behavior by passing any combination of the following flags:
                                                                              │
                                                                              ▼
 [ Physical Conversion ] <─── [ Stem Flare Detection ] <─────── [ Sliding-Window Pathing ]
-         │
+         │                   (With Sessile Safety Check)
          ▼
-[ Convex Hull & Lobing ] ──> [ MD5 Cryptographic Hashing ] ──> [ CSV Database & UI Export ]
+[ Amputated Blade Contour ] ──> [ Convex Hull & Lobing ] ──> [ MD5 Cryptographic Hashing ] ──> [ Export ]
 ```
 ### 1. Preprocessing & Segmentation
 1. **Physical Scaling Calculation:** The system attempts to read the native resolution array from the image metadata. If missing, it defaults to $1200\text{ DPI}$ (This Can Be Modified At Line 24). Conversion ratios are established dynamically:
@@ -68,41 +71,42 @@ $$\text{Thresholding\_Option}=\text{cv.THRESH\_BINARY\_INV}+\text{cv.THRESH\_OTS
 $$cX=\frac{M_{10}}{M_{00}},\quad cY=\frac{M_{01}}{M_{00}}$$
 If an anomalous edge artifact disrupts the moment boundaries, the program cleanly defaults to the exact midpoint of a standard orthogonal bounding box. Center of Mass ($\text{CoM}$) may be reffered to as Center of Gravity in the code.
 * **Rotated Structural Bounds:** A minimum area enclosing rectangle (`cv.minAreaRect`) fits around the contour. The longer axis defines the absolute maximum Leaf Length, and the perpendicular axis establishes the Leaf Width.
-* **Solidity & Lobing Coefficients:** The program derives dimensionless shape identifiers by computing a convex envelope profile over the contour boundaries:
-$$\text{Solidity}=\frac{\text{Area}_{\text{Contour}}}{\text{Area}_{\text{Hull}}}$$
+* **Solidity & Lobing Coefficients:** The program derives dimensionless shape identifiers by computing a convex envelope profile over the contour boundaries. When `--petiole` is active, this math runs on the isolated, amputated blade contour ($\text{Blade}_{\text{Contour}}$):
+$$\text{Solidity}=\frac{\text{Area}_{\text{Blade\_Contour}}}{\text{Area}_{\text{Hull}}}$$
 $$\text{Degree\_of\_Lobing}=1.0-\text{Solidity}$$
-
 ---
 
 ## Advanced Feature: The Petiole Flare Algorithm
 
 Locating where a petiole officially transitions into a leaf blade is notoriously challenging due to variable tapers and localized surface bumps. This application solves this through a localized center-line widening profile:
-
                       _.-'''''''-._
                     .'             '.
                    /                 \
                   |                   | <--- Leaf Blade
                    \                 /
       Flare Point   '.             .'  
-       (p_flair) ====> '._      _.' <----- Sustained Expansion Triggered
-                          |    |
-                          |    |     <---- Moving Median Baseline Measured
-                          |    |
-      Stem Attachment ===> \__/
+       (p_flair) ====> '._       _.' <----- Sustained Expansion Triggered
+                          |  |        [======= Digital Amputation Line =======]
+                          |  |     
+                          |  |     <---- Moving Median Baseline Measured
+                          |  |
+     Stem Attachment ===> \__/
        (p_end)
+### The Pathing & Flare Separation Logic
 
 ### The Pathing & Flare Separation Logic
 
 1. **Origin Anchoring ($p_{end}$):** The system calculates Euclidean distance vectors from the Centroid to every coordinate on the continuous outer boundary. The maximum value identifies the tail tip where the petiole was cut from the plant:
 $$p_{end}=\arg\max_{p\in\text{contour}}\|p-\text{CoM}\|$$
-2. **Bilateral Contour Walk:** Starting at $p_{end}$, the loop marches symmetrically outward in both clockwise and counter-clockwise directions along the contour index array.
-3. **Localized Center & Width Resolution:** For every index step $i$, a localized vector search matches point $A$ on the left wall with its nearest counterpart point $B$ on the right wall. This calculates the changing cross-sectional thickness ($local\_width$) and the physical core path ($local\_center$).
+2. **Sessile (Stemless) Abort Guard:** Before mapping the stem, the script measures the contour's width near $p_{end}$ over a localized window of steps. If this base width exceeds $15\%$ of the overall leaf width, the algorithm identifies the specimen as a stemless (sessile) leaf. It safely aborts the tracker, bypassing amputation to prevent cutting the leaf apex.
+3. **Bilateral Contour Walk:** If a stem is validated, starting at $p_{end}$, the loop marches symmetrically outward in both clockwise and counter-clockwise directions along the contour index array.
 4. **Statistical Median Baseline:** To avoid being tricked by tears, jagged cuts, or immediate flare artifacts right at the base of the stem, the program monitors the first $1.5\%$ of the total contour point array to establish a true average thickness baseline using a median calculation:
 $$\text{Baseline\_Width}=\text{median}(local\_width_{1\dots i})$$
 5. **Sustained Flare Condition:** As the tracking path travels up the stem, it evaluates two strict conditions before it can call a point the "leaf blade":
    * **Minimum Travel Constraint:** The accumulated path length must be greater than a baseline minimum ($10\%$ of global leaf length) to stop short petioles from triggering early.
    * **Sustained Expansion Run:** The local width must exceed the baseline by the `flare_sensitivity` coefficient. To ensure a small structural bump doesn't falsely halt tracking, this expansion must hold true continuously for a specific number of consecutive steps (`consecutive_triggers_needed`).
 6. **Visual Rollback Optimization:** Once a sustained flare is confirmed, the engine steps back along the path history to the exact index where the widening first began, assigning the **Magenta Flare Dot** ($p_{flair}$) cleanly at the true anatomical intersection.
+7. **Visual Rollback & Digital Amputation:** Once a sustained flare is confirmed, the engine steps back along the path history to the exact index where the widening first began, assigning the **Magenta Flare Dot** ($p_{flair}$). It then isolates all contour indices located above this boundary line, creating a second contour representation: the amputated **blade-only contour** (`blade_cnt`).
 
 ---
 
@@ -122,15 +126,13 @@ You can easily recalibrate the sensitivity thresholds inside the script's core l
 ## Diagnostic Outputs & Visual Annotations
 
 Every processed scan generates an asset layout featuring dynamic, color-coded visual markers:
-
 * **Blue Node:** The spatial center of mass (Centroid).
-* **Red Node:** The base attachment tip of the petiole tail. (where its cut from the stem)
-
+* **Red Node:** The base attachment tip of the petiole tail (where it is cut from the stem).
 * **Magenta Node:** The identified petiole flare entry point into the leaf blade.
 * **Orange Ribbon Line:** The dynamically traced center-line path running through the core of the petiole.
+* **Cyan Line:** The digital amputation cut-line slicing across the base of the blade (only visible when `--petiole` is active and a petiole is successfully amputated).
 * **Thin Grey Frame:** The minimum area enclosing bounding box mapping the main growth orientation axes.
 * **Integrated Metadata Panel:** A rendered dashboard painted directly onto the center of the canvas detailing identification hashes, pixel measurements, calibrated metric calculations, and shape ratios.
-
 ---
 
 ## Relational Database Fields
@@ -141,7 +143,7 @@ All numerical calculations are exported cleanly to `leaf_comprehensive_morphomet
 | :--- | :--- | :--- |
 | `Source_File` | String | System name of the input image file. |
 | `Scan_DPI` | Integer | Resolution value parsed from metadata header or program default. |
-| `Leaf_Hash_ID` | String | Unique 8-character cryptographic hash signature of the specimen. |
+| `Leaf_Hash_ID` | String | Unique 8-character cryptographic hash signature generated from the raw intact physical footprint of the specimen scan. |
 | `Area_Pixels` | Integer | Count of all interior mask pixels defining the leaf structure. |
 | `Perimeter_Pixels` | Integer | Total contour pixel length around the specimen perimeter. |
 | `Leaf_Length_Pixels` | Integer | Length of the long axis of the minimum rotated bounding box. |
@@ -157,7 +159,7 @@ All numerical calculations are exported cleanly to `leaf_comprehensive_morphomet
 | `Length_Width_Ratio` | Float | Aspect ratio indicating overall leaf elongation. |
 | `Pixel_Edge_Area_Ratio` | Float | Raw ratio of perimeter pixels relative to area pixels. |
 | `Physical_Edge_Area_Ratio_cm1` | Float | Calibrated boundary-to-surface-area ratio in metric units. |
-| `Degree_of_Lobing` | Float | Geometric ratio ($0.0$ to $1.0$) indicating edge complexity and sinus depths. |
+| `Degree_of_Lobing` | Float | Geometric ratio ($0.0$ to $1.0$) indicating edge complexity and sinus depths. Calculated *exclusively* on the isolated blade contour when `--petiole` is enabled to ensure biological accuracy. |
 ---
 # Safrole Program
 

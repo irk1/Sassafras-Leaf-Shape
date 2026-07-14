@@ -109,95 +109,117 @@ for Source in scan_files:
         leaf_width_px = min(rect_w, rect_h)
         lw_ratio = leaf_length_px / leaf_width_px if leaf_width_px > 0 else 0
         
-        # Default Petiole Initialization
+        # Default Petiole & Amputation Initialization
         petiole_length_px = 0.0
         com_to_petiole_end_px = 0.0
         p_end = None
         p_flair = None
         curved_path = []
+        blade_cnt = cnt  # Default to full contour unless amputated
+        left_cut_idx = None
+        right_cut_idx = None
+        cnt_points = cnt.reshape(-1, 2)
 
         if args.petiole:
             # Advanced Petiole Sizing via Vector Tracking
-            cnt_points = cnt.reshape(-1, 2)
             distances_to_com = np.linalg.norm(cnt_points - com, axis=1)
             idx_petiole_end = np.argmax(distances_to_com)
-            p_end = cnt_points[idx_petiole_end]  # Stem attachment point
+            p_end = cnt_points[idx_petiole_end]  
             
             com_to_petiole_end_px = float(distances_to_com[idx_petiole_end])
             
-            # === MODIFICATION START: CURVED PETIOLE INTEGRATION ===
             N = len(cnt_points)
             max_search = int(N * 0.35)  
             
             # --- TUNING PARAMETERS ---
-            flare_sensitivity = 1.35  # Multiplier (e.g., 1.35 = 35% wider than the petiole)
-            min_petiole_length_px = 0.1 * leaf_length_px  # Must travel 10% of leaf length before checking
-            baseline_calc_steps = max(15, int(0.015 * N))  # Dynamic physical distance to sample base width
-            consecutive_triggers_needed = max(3, int(0.005 * N)) # Must STAY wide for N steps to ignore bumps
+            flare_sensitivity = 1.35  
+            min_petiole_length_px = 0.1 * leaf_length_px  
+            baseline_calc_steps = max(15, int(0.015 * N))  
+            consecutive_triggers_needed = max(3, int(0.005 * N)) 
             # -------------------------
             
-            curved_path = [p_end.astype(np.float32)]
-            p_flair = p_end.copy()
-            curr_idx_B_offset = 1
+            # --- SESSILE (STEMLESS) ABORT CHECK ---
+            # Measure the width across the contour near the anchor point
+            test_pt_A = cnt_points[(idx_petiole_end + baseline_calc_steps) % N]
+            test_pt_B = cnt_points[(idx_petiole_end - baseline_calc_steps) % N]
+            initial_width = np.linalg.norm(test_pt_A - test_pt_B)
             
-            base_widths = []
-            trigger_count = 0
-            
-            for i in range(1, max_search):
-                idx_A = (idx_petiole_end + i) % N
-                pt_A = cnt_points[idx_A]
+            if initial_width > (0.15 * leaf_width_px):
+                print(f"  -> Stemless leaf detected (Base Width: {initial_width:.1f}px). Aborting petiole tracking.")
+                # We bypass the tracking loop; blade_cnt remains exactly equal to cnt
+            else:
+                # --- ACTIVE PETIOLE TRACKING ---
+                curved_path = [p_end.astype(np.float32)]
+                path_contour_indices = [(idx_petiole_end, idx_petiole_end)] 
                 
-                best_j_offset = curr_idx_B_offset
-                min_w = float('inf')
+                p_flair = p_end.copy()
+                curr_idx_B_offset = 1
                 
-                # Widened search window to accommodate high-res shifting
-                start_j = max(1, curr_idx_B_offset - 15)
-                end_j = min(max_search, curr_idx_B_offset + 35)
+                base_widths = []
+                trigger_count = 0
                 
-                for j in range(start_j, end_j):
-                    idx_B = (idx_petiole_end - j) % N
-                    pt_B = cnt_points[idx_B]
-                    w = np.linalg.norm(pt_A - pt_B)
-                    if w < min_w:
-                        min_w = w
-                        best_j_offset = j
-                        
-                curr_idx_B_offset = best_j_offset
-                idx_B_final = (idx_petiole_end - curr_idx_B_offset) % N
-                pt_B_final = cnt_points[idx_B_final]
-                
-                local_width = min_w
-                local_center = (pt_A + pt_B_final) / 2.0
-                
-                step_dist = np.linalg.norm(local_center - curved_path[-1])
-                petiole_length_px += step_dist
-                curved_path.append(local_center)
-                
-                # Phase 1: Build a robust statistical baseline using the Median (ignores cut-point noise)
-                if i <= baseline_calc_steps:
-                    base_widths.append(local_width)
-                    baseline = np.median(base_widths)
+                for i in range(1, max_search):
+                    idx_A = (idx_petiole_end + i) % N
+                    pt_A = cnt_points[idx_A]
                     
-                # Phase 2: Look for sustained, continuous expansion
-                else:
-                    if local_width > (baseline * flare_sensitivity) and petiole_length_px > min_petiole_length_px:
-                        trigger_count += 1
+                    best_j_offset = curr_idx_B_offset
+                    min_w = float('inf')
+                    
+                    start_j = max(1, curr_idx_B_offset - 15)
+                    end_j = min(max_search, curr_idx_B_offset + 35)
+                    
+                    for j in range(start_j, end_j):
+                        idx_B = (idx_petiole_end - j) % N
+                        pt_B = cnt_points[idx_B]
+                        w = np.linalg.norm(pt_A - pt_B)
+                        if w < min_w:
+                            min_w = w
+                            best_j_offset = j
+                            
+                    curr_idx_B_offset = best_j_offset
+                    idx_B_final = (idx_petiole_end - curr_idx_B_offset) % N
+                    pt_B_final = cnt_points[idx_B_final]
+                    
+                    local_width = min_w
+                    local_center = (pt_A + pt_B_final) / 2.0
+                    
+                    step_dist = np.linalg.norm(local_center - curved_path[-1])
+                    petiole_length_px += step_dist
+                    curved_path.append(local_center)
+                    path_contour_indices.append((idx_A, idx_B_final)) 
+                    
+                    # Phase 1: Build statistical baseline
+                    if i <= baseline_calc_steps:
+                        base_widths.append(local_width)
+                        baseline = np.median(base_widths)
+                        
+                    # Phase 2: Look for sustained expansion
                     else:
-                        # If the width shrinks again, it was just a bump. Reset the trigger.
-                        trigger_count = 0 
-                        
-                    # If it stays expanded for the required number of steps, we found the true blade
-                    if trigger_count >= consecutive_triggers_needed:
-                        # Step back visually to the exact point the flare started
-                        flare_idx = max(0, len(curved_path) - consecutive_triggers_needed)
-                        p_flair = curved_path[flare_idx].astype(int)
-                        
-                        # Trim the visual path line so it doesn't bleed into the blade
-                        curved_path = curved_path[:flare_idx+1]
-                        petiole_length_px = sum(np.linalg.norm(curved_path[k] - curved_path[k-1]) for k in range(1, len(curved_path)))
-                        break
-                        
-            # === MODIFICATION END =================================
+                        if local_width > (baseline * flare_sensitivity) and petiole_length_px > min_petiole_length_px:
+                            trigger_count += 1
+                        else:
+                            trigger_count = 0 
+                            
+                        if trigger_count >= consecutive_triggers_needed:
+                            flare_idx = max(0, len(curved_path) - consecutive_triggers_needed)
+                            p_flair = curved_path[flare_idx].astype(int)
+                            
+                            left_cut_idx, right_cut_idx = path_contour_indices[flare_idx]
+                            
+                            # --- DIGITAL AMPUTATION ---
+                            # Extract only the blade outline, bypassing the tail completely
+                            blade_points = []
+                            curr = left_cut_idx
+                            while curr != right_cut_idx:
+                                blade_points.append(cnt_points[curr])
+                                curr = (curr + 1) % N
+                            blade_points.append(cnt_points[right_cut_idx])
+                            
+                            blade_cnt = np.array(blade_points).reshape((-1, 1, 2))
+                            
+                            curved_path = curved_path[:flare_idx+1]
+                            petiole_length_px = sum(np.linalg.norm(curved_path[k] - curved_path[k-1]) for k in range(1, len(curved_path)))
+                            break
 
         # --- 2. SECONDARY CALIBRATION (CENTIMETERS) ---
         actual_area_cm2 = area_px / pixels_per_cm2
@@ -208,13 +230,17 @@ for Source in scan_files:
         petiole_length_cm = petiole_length_px / pixels_per_cm
         com_to_petiole_end_cm = com_to_petiole_end_px / pixels_per_cm
         
-        # Dimensionless Shape Values
-        hull = cv.convexHull(cnt)
+        # --- PRISTINE BLADE SHAPE VALUES ---
+        # Calculated exclusively on the amputated blade contour to ignore stem-induced empty space
+        hull = cv.convexHull(blade_cnt)
         hull_area = cv.contourArea(hull)
-        solidity = area_px / hull_area if hull_area > 0 else 0
-        degree_of_lobing = 1.0 - solidity
+        blade_area_px = cv.contourArea(blade_cnt)
         
-        # Generate repeatable unique Hash mapping with collision prevention
+        solidity = blade_area_px / hull_area if hull_area > 0 else 0
+        blade_degree_of_lobing = 1.0 - solidity
+        
+        # Generate repeatable unique Hash mapping
+        # Note: Hashes the raw, unaltered original scan geometry 'cnt' (Option A)
         hasher = hashlib.md5()
         hasher.update(filename.encode('utf-8'))
         hasher.update(cnt.tobytes())
@@ -233,25 +259,28 @@ for Source in scan_files:
         box_points = np.int64(cv.boxPoints(rect))
         cv.drawContours(output_img, [box_points], 0, (100, 100, 100), max(1, int(1 * sf)))
         
-        # === MODIFICATION START: DRAWING CURVED PATH ===
         if args.petiole and len(curved_path) > 1:
             points_poly = np.array(curved_path, dtype=np.int32).reshape((-1, 1, 2))
             cv.polylines(output_img, [points_poly], False, (0, 140, 255), line_thickness)
-        # === MODIFICATION END =========================
+            
+            # Draw the visual cut-line across the base of the blade
+            if left_cut_idx is not None and right_cut_idx is not None:
+                pt1 = tuple(cnt_points[left_cut_idx])
+                pt2 = tuple(cnt_points[right_cut_idx])
+                cv.line(output_img, pt1, pt2, (255, 255, 0), line_thickness) # Cyan cut-line
         
         cv.circle(output_img, (int(cX), int(cY)), int(3 * sf), (255, 0, 0), -1)
         if args.petiole and p_end is not None and p_flair is not None:
             cv.circle(output_img, (int(p_end[0]), int(p_end[1])), int(3 * sf), (0, 0, 255), -1)
             cv.circle(output_img, (int(p_flair[0]), int(p_flair[1])), int(3 * sf), (255, 0, 255), -1)
         
-        
-        # --- UI DATA PANEL GENERATION (PIXEL DOMINANT) ---
+        # --- UI DATA PANEL GENERATION ---
         label_id = f"ID: {leaf_hash}"
         label_abs = f"Px A:{int(area_px)} | L:{int(leaf_length_px)} | W:{int(leaf_width_px)}"
         label_petiole_px = f"Px Petiole L:{int(petiole_length_px)} | CoM->Stem:{int(com_to_petiole_end_px)}"
         label_phys = f"Cm A:{actual_area_cm2:.1f}cm2 | L:{leaf_length_cm:.1f}cm | W:{leaf_width_cm:.1f}cm"
         label_petiole_cm = f"Cm Petiole L:{petiole_length_cm:.2f}cm | CoM->Stem:{com_to_petiole_end_cm:.2f}cm"
-        label_ratios = f"L:W Ratio: {lw_ratio:.3f} | Lobing Deg: {degree_of_lobing:.4f}"
+        label_ratios = f"L:W Ratio: {lw_ratio:.3f} | Blade Lobing: {blade_degree_of_lobing:.4f}"
         
         text_size_1, _ = cv.getTextSize(label_id, cv.FONT_HERSHEY_SIMPLEX, font_scale_id, text_thickness_bold)
         text_size_2, _ = cv.getTextSize(label_abs, cv.FONT_HERSHEY_SIMPLEX, font_scale_metrics, text_thickness_thin)
@@ -265,20 +294,15 @@ for Source in scan_files:
         
         pad1, pad2, pad3, pad4, pad5, pad6 = int(20*sf), int(42*sf), int(64*sf), int(86*sf), int(108*sf), int(130*sf)
         
-        # Render Box Background
-        #cv.rectangle(output_img, (cX - box_w//2, cY - box_h//2), (cX + box_w//2, cY + box_h//2), (0, 0, 0), -1)
-        
-        # Print Text Data Lines
         cv.putText(output_img, label_id, (cX - text_size_1[0]//2, cY - box_h//2 + pad1), cv.FONT_HERSHEY_SIMPLEX, font_scale_id, (255, 255, 255), text_thickness_bold)
-        cv.putText(output_img, label_abs, (cX - text_size_2[0]//2, cY - box_h//2 + pad2), cv.FONT_HERSHEY_SIMPLEX, font_scale_metrics, (0, 255, 255), text_thickness_thin) # Cyan for primary px
+        cv.putText(output_img, label_abs, (cX - text_size_2[0]//2, cY - box_h//2 + pad2), cv.FONT_HERSHEY_SIMPLEX, font_scale_metrics, (0, 255, 255), text_thickness_thin) 
         cv.putText(output_img, label_petiole_px, (cX - text_size_3[0]//2, cY - box_h//2 + pad3), cv.FONT_HERSHEY_SIMPLEX, font_scale_metrics, (0, 255, 255), text_thickness_thin)
-        cv.putText(output_img, label_phys, (cX - text_size_4[0]//2, cY - box_h//2 + pad4), cv.FONT_HERSHEY_SIMPLEX, font_scale_metrics, (255, 180, 50), text_thickness_thin) # Orange for secondary cm
+        cv.putText(output_img, label_phys, (cX - text_size_4[0]//2, cY - box_h//2 + pad4), cv.FONT_HERSHEY_SIMPLEX, font_scale_metrics, (255, 180, 50), text_thickness_thin) 
         cv.putText(output_img, label_petiole_cm, (cX - text_size_5[0]//2, cY - box_h//2 + pad5), cv.FONT_HERSHEY_SIMPLEX, font_scale_metrics, (255, 180, 50), text_thickness_thin)
-        cv.putText(output_img, label_ratios, (cX - text_size_6[0]//2, cY - box_h//2 + pad6), cv.FONT_HERSHEY_SIMPLEX, font_scale_metrics, (100, 255, 100), text_thickness_thin) # Green for ratios
+        cv.putText(output_img, label_ratios, (cX - text_size_6[0]//2, cY - box_h//2 + pad6), cv.FONT_HERSHEY_SIMPLEX, font_scale_metrics, (100, 255, 100), text_thickness_thin) 
         
-        print(f"Leaf [{leaf_hash}] -> Px Petiole: {int(petiole_length_px)} px ({petiole_length_cm:.2f} cm) | L:W Ratio: {lw_ratio:.3f}")
+        print(f"  -> Leaf [{leaf_hash}] | Px Petiole: {int(petiole_length_px)} px ({petiole_length_cm:.2f} cm) | Blade Lobing: {blade_degree_of_lobing:.4f}")
         
-        # Save metrics to database tracking record list
         csv_records.append({
             'Source_File': filename,
             'Scan_DPI': dpi,
@@ -298,16 +322,14 @@ for Source in scan_files:
             'Length_Width_Ratio': round(lw_ratio, 6),
             'Pixel_Edge_Area_Ratio': round(pixel_edge_area_ratio, 8),
             'Physical_Edge_Area_Ratio_cm1': round(physical_edge_area_ratio, 4),
-            'Degree_of_Lobing': round(degree_of_lobing, 6)
+            'Degree_of_Lobing': round(blade_degree_of_lobing, 6)
         })
 
-    # Save out the high-quality annotated diagnostic file
     annotated_filename = f"Annotated_{filename}"
     annotated_path = os.path.join(annotated_folder, annotated_filename)
     cv.imwrite(annotated_path, output_img)
     print(f"[SAVED ANNOTATION] -> {annotated_path}")
 
-    # Render localized notebook view window if --show is passed
     if args.show:
         output_rgb = cv.cvtColor(output_img, cv.COLOR_BGR2RGB)
         plt.figure(figsize=(12, 10))
