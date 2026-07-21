@@ -258,7 +258,8 @@ for Source in scan_files:
         cv.drawContours(output_img, [cnt], -1, (0, 255, 0), contour_thickness)
         box_points = np.int64(cv.boxPoints(rect))
         cv.drawContours(output_img, [box_points], 0, (100, 100, 100), max(1, int(1 * sf)))
-        
+        cv.drawContours(output_img, [hull], -1, (0, 255, 255), max(1, int(1.5 * sf)))
+
         if args.petiole and len(curved_path) > 1:
             points_poly = np.array(curved_path, dtype=np.int32).reshape((-1, 1, 2))
             cv.polylines(output_img, [points_poly], False, (0, 140, 255), line_thickness)

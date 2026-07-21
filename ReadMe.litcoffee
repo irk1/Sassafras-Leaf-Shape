@@ -94,7 +94,6 @@ Locating where a petiole officially transitions into a leaf blade is notoriously
        (p_end)
 ### The Pathing & Flare Separation Logic
 
-### The Pathing & Flare Separation Logic
 
 1. **Origin Anchoring ($p_{end}$):** The system calculates Euclidean distance vectors from the Centroid to every coordinate on the continuous outer boundary. The maximum value identifies the tail tip where the petiole was cut from the plant:
 $$p_{end}=\arg\max_{p\in\text{contour}}\|p-\text{CoM}\|$$
