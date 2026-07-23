@@ -27,3 +27,6 @@ Safrole_Plotter.spec
 *.spec
 *.spec
 /plotter_env
+consolidated_ecoplate_long.csv
+consolidated_ecoplate_master.csv
+/Misc Shit
