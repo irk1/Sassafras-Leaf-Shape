@@ -160,11 +160,11 @@ All numerical calculations are exported cleanly to `leaf_comprehensive_morphomet
 | `Physical_Edge_Area_Ratio_cm1` | Float | Calibrated boundary-to-surface-area ratio in metric units. |
 | `Degree_of_Lobing` | Float | Geometric ratio ($0.0$ to $1.0$) indicating edge complexity and sinus depths. Calculated *exclusively* on the isolated blade contour when `--petiole` is enabled to ensure biological accuracy. |
 ---
-# Safrole Program
+# Safrole Plotter
 
-This documentation provides comprehensive instructions for operators utilizing the packaged, standalone executable version of the Column-Mapping Visualizer aka `Safrole_Plotter.exe`. This application is designed to ingest raw data columns from tabular text files (such as CSV or TSV files) and project them into structured, publication-quality 2D intensity grids (heatmaps), 3D topological meshes (surfaces), or 2D/3D scatter plots. Because the tool operates purely through a Command Line Interface (CLI), you do not need a Python environment or separate code compilers to run it; all required math, interpolation, and rendering engines are completely self-contained within the executable binary.
+This documentation provides comprehensive instructions for operators utilizing the packaged, standalone executable version of the Column/Row Mapping Visualizer, `Safrole_Plotter.exe`. This application is designed to ingest raw data from tabular spreadsheets and text files (such as `.xlsx`, `.xls`, `.csv`, or `.tsv`) and project them into structured, publication-quality 2D density heatmaps, 3D topological surfaces, bar/whisker categorical plots, or 2D/3D scatter graphs with polynomial curve fitting. Because the tool operates purely through a Command Line Interface (CLI), you do not need a Python environment or separate code compilers to run it; all required math, interpolation, and rendering engines are completely self-contained within the executable binary.
 
-To execute the application, open your operating system's terminal (Command Prompt or PowerShell on Windows, Terminal on macOS/Linux), navigate to the directory containing your compiled binary, and run the executable by passing your data file path and desired operation configurations as arguments.
+To execute the application, open your operating system's terminal (Command Prompt or PowerShell on Windows, Terminal on macOS/Linux), navigate to the directory containing your compiled binary, and run the executable by passing your data file path and desired operational configurations as arguments.
 
 ---
 
@@ -172,52 +172,105 @@ To execute the application, open your operating system's terminal (Command Promp
 
 The behavior of the application is altered using explicit command switches. These arguments are classified into structural execution blocks:
 
-### Data Selection & Columns
+### Data File Options
 
-* `--csv [PATH]` *(Required)*: Specifies the relative or absolute system path to your target data file.
-* `--x-col [INT]` *(Default: 0)*: Specifies the 0-indexed column position in your data file to read as the horizontal axis values.
-* `--y-col [INT]` *(Default: 1)*: Specifies the 0-indexed column position in your data file to read as the vertical axis values.
-* `--z-col [INT]` *(Default: 2)*: Specifies the 0-indexed column position in your data file to read as the weight/intensity values (ignored in standard 2D scatter mode).
-* `--delimiter [STR]` *(Default: `,`)*: The character pattern splitting the columns in your text file (e.g., use `\t` for tab-separated data).
+* `--file [PATH]` or `--csv [PATH]` *(Required)*: Specifies the relative or absolute system path to your target data file (`.csv`, `.tsv`, `.xlsx`, or `.xls`).
+* `--sheet [NAME | INT]` *(Default: 0)*: For Excel files, specifies the target sheet name or 0-indexed sheet index (e.g., `--sheet 0` or `--sheet "Sheet1"`).
+* `--delimiter [STR]` *(Default: `,`)*: The character pattern splitting columns in text files (e.g., use `\t` for tab-separated data).
+
+### Variable Selection & Data Slicing
+
+You can extract data from either **columns** or **rows** and slice specific sub-regions:
+
+* `--x-col [STR]` / `--y-col [STR]` / `--z-col [STR]`: Defines columns as data sources. Accepts Excel letters (e.g., `A`, `F`, `AA`) or 0-indexed integer strings (e.g., `0`, `5`). Defaults: X = `A`, Y = `B`, Z = `C`.
+* `--x-row [INT]` / `--y-row [INT]` / `--z-row [INT]`: Defines 1-indexed row numbers as data sources (e.g., `--x-row 1` to use Row 1 as X values).
+* `--x-range [START] [END]` / `--y-range [START] [END]` / `--z-range [START] [END]`: Defines specific slice boundaries for individual variables:
+* **When using `--x-col`:** Range values represent **1-indexed row limits** (e.g., `--x-range 2 60` reads rows 2 through 60).
+* **When using `--x-row`:** Range values represent **column limits** using letters or indices (e.g., `--x-range B Z` reads columns B through Z).
+
+
+* `--rows [START] [END]`: Global fallback row boundary applied to all column selections (1-indexed).
+* `--cols [START] [END]`: Global fallback column boundary applied to all row selections (Excel letters or 0-indexed integers).
 
 ### Custom Axis Range Bounds
 
-* `--xlim [MIN] [MAX]`: Sets custom numerical boundaries for the X-axis (e.g., `--xlim 0 50`).
-* `--ylim [MIN] [MAX]`: Sets custom numerical boundaries for the Y-axis.
-* `--zlim [MIN] [MAX]`: Sets custom numerical boundaries for the Z-axis or colorbar.
+* `--xlim [MIN] [MAX]`: Sets custom numerical boundaries for the X-axis view (e.g., `--xlim 0 50`).
+* `--ylim [MIN] [MAX]`: Sets custom numerical boundaries for the Y-axis view.
+* `--zlim [MIN] [MAX]`: Sets custom numerical boundaries for the Z-axis view or colorbar limits.
 
-### Curve Fitting & Extrapolation (2D Scatter Only)
+### Curve Fitting & Extrapolation (2D Scatter Mode Only)
 
-* `--fit-degree [1 | 2 | 3 | 4 | 5]`: Fits an algebraic polynomial trendline to your 2D scatter coordinates. Automatically calculates and prints the resulting algebraic equation and R-squared (R^2) correlation metric directly to your terminal. 
-  * `1` = Linear (y = mx + b)
-  * `2` = Quadratic (y = ax^2 + bx + c)
-* `--project [FLOAT]`: Decimal fraction specifying how far to project/extrapolate the trendline beyond your actual dataset's boundaries (e.g., `--project 0.5` extends the line outward by 50% on both sides). Alternatively, utilizing `--xlim` will automatically project the line to meet your view bounds.
-* `--fit-ci`: Calculates and projects a 95% confidence interval using the dataset's covariance matrix. **This uncertainty band is exclusively rendered on the extrapolated portions of the line** to visually represent forecasting margins of error.
+* `--fit-degree [1 | 2 | 3 | 4 | 5]`: Fits an algebraic polynomial trendline to your 2D scatter coordinates. Automatically calculates and prints the resulting algebraic equation and $R^2$ correlation metric directly to your terminal console.
+* `1` = Linear ($y = mx + b$)
+* `2` = Quadratic ($y = ax^2 + bx + c$)
+
+
+* `--project [FLOAT]` *(Default: 0.0)*: Decimal fraction specifying how far to project/extrapolate the trendline beyond your actual dataset's boundaries (e.g., `--project 0.5` extends the line outward by 50% on both ends).
+* `--fit-ci`: Calculates and projects a 95% confidence interval using the covariance matrix. **This uncertainty band is exclusively rendered on the extrapolated portions of the line** to visually represent forecasting margins of error.
 
 ### Axis Scaling & Transformations
 
-* `--scale-x`, `--scale-y`, `--scale-z` *(Default: 1.0)*: Decimal multipliers applied directly to your raw column data prior to rendering (useful for unit conversions like meters to millimeters).
-* `--log-x`, `--log-y`, `--log-z`: Flags that apply a base-10 logarithmic scaling mapping to the chosen axis. If your target column contains values less than or equal to zero, the application will automatically perform a linear offset shift (+10^-6) to prevent runtime mathematical exceptions.
+* `--scale-x`, `--scale-y`, `--scale-z` *(Default: 1.0)*: Decimal multipliers applied directly to raw data prior to rendering (useful for unit conversions, e.g., meters to millimeters).
+* `--log-x`, `--log-y`, `--log-z`: Flags that apply a base-10 logarithmic scale to the chosen axis. If target data contains values less than or equal to zero, the application automatically performs a linear offset shift ($+10^{-6}$) to prevent runtime mathematical exceptions.
 
 ### Presentation & Aesthetics
 
-* `--mode [surface | heatmap | scatter]` *(Default: surface)*: Chooses between a 3D perspective landscape geometry projection (`surface`), a flat 2D top-down cell grid (`heatmap`), or a raw point plot (`scatter`).
-* `--scatter-3d`: Forces `scatter` mode to render an interactive 3-variable spatial plot utilizing the X, Y, and Z columns together.
-* `--res [INT]` *(Default: 100)*: Sets the structural internal interpolation matrix dimension (N x N). Higher numbers create a smoother graphic output but demand more system memory during processing.
-* `--cmap [STR]` *(Default: viridis)*: Applies a standard color profile palette (e.g., `plasma`, `magma`, `inferno`, or `cividis`).
-* `--xlabel`, `--ylabel`, `--zlabel` *(Default: Automated)*: Replaces default structural axis descriptions with custom strings.
-* `--hide`: Runs data loading, parsing, and matrix scaling metrics natively in your terminal console without spawning a graphical display window.
+* `--mode [scatter | bar | boxplot | whisker | surface | heatmap]` *(Default: scatter)*: Chooses the rendering layout:
+* `scatter`: Renders 2D point plots (or 3D spatial plots if `--scatter-3d` is passed).
+* `bar`: Renders vertical bar charts for categorical or series data.
+* `boxplot` or `whisker`: Groups Y values by X category and renders statistical distribution boxes with whiskers and medians.
+* `heatmap`:
+* **Without Z Source:** Renders a **2D Density Heatmap (Frequency Distribution)** of X vs Y.
+* **With Z Source:** Generates an interpolated 2D top-down grid map of Z values.
+
+
+* `surface`: Interpolates a 3D perspective landscape geometry requiring X, Y, and Z.
+
+
+* `--scatter-3d`: Forces `scatter` mode to render an interactive 3-variable spatial plot utilizing X, Y, and Z columns together.
+* `--res [INT]` *(Default: 30)*: Sets internal interpolation grid resolution or histogram bin count ($N \times N$). Higher numbers create smoother graphic outputs.
+* `--cmap [STR]` *(Default: viridis)*: Applies a Matplotlib colormap profile (e.g., `plasma`, `magma`, `inferno`, `cividis`, `coolwarm`, `seaborne`).
+* `--xlabel`, `--ylabel`, `--zlabel` *(Default: Automated)*: Replaces default structural axis descriptions with custom labels.
+* `--hide`: Runs data loading, parsing, and diagnostic checks natively in your terminal console without spawning a graphical display window.
 
 ---
 
 ## Detailed Step-by-Step Usage Examples
 
-### Example 1: Basic 3D Surface Generation
+### Example 1: 2D Density Heatmap from Sliced Excel Columns
 
-If you have a comma-separated file named `sensor_reading.csv` where column 1 holds your width data, column 2 holds length data, and column 4 holds temperature metrics, use:
+To evaluate the 2D frequency distribution between Column `F` and Column `R` from an Excel spreadsheet, skipping header row 1 and analyzing rows 2 through 60:
 
-```bash
-Safrole_Plotter.exe --csv sensor_reading.csv --x-col 0 --y-col 1 --z-col 3 --mode surface
+```
+Safrole_Plotter.exe --file "C:\Data\master.xlsx" --x-col F --y-col R --x-range 2 60 --y-range 2 60 --mode heatmap
+
+```
+
+### Example 2: 3D Surface Interpolation with Individual Variable Ranges
+
+To generate an interpolated 3D surface mesh using Column `A` (X), Column `B` (Y), and Column `H` (Z) across rows 10 to 100:
+
+```
+Safrole_Plotter.exe --file data.csv --x-col A --y-col B --z-col H --rows 10 100 --mode surface --res 100 --cmap magma
+
+```
+
+### Example 3: Categorical Boxplot from Row Data Sections
+
+If your dataset is organized horizontally across rows (e.g., Row 1 contains category names across columns `B` through `Z`, and Row 2 contains measured values):
+
+```
+Safrole_Plotter.exe --file "samples.xlsx" --x-row 1 --x-range B Z --y-row 2 --y-range B Z --mode boxplot --ylabel "Absorbance (AU)"
+
+```
+
+### Example 4: 2D Scatter Plot with Polynomial Fitting & Extrapolation
+
+To plot a scatter chart from Column `2` vs Column `3`, fit a 2nd-degree quadratic curve, project it 25% beyond the data bounds, and show 95% confidence bands:
+
+```
+Safrole_Plotter.exe --file experiment.csv --x-col 2 --y-col 3 --x-range 5 50 --y-range 5 50 --mode scatter --fit-degree 2 --project 0.25 --fit-ci
+
 ```
 ---
 # Future Plans
