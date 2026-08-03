@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+distpath=['C:/Users/izzyk/OneDrive/Documents/GitHub/Sassafras Leaf Shape/']
 
 a = Analysis(
     ['Leaf_analyzer.py'],
