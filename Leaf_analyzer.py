@@ -259,10 +259,26 @@ mtx, dist, dynamic_px_per_cm = None, None, None
 
 if calib_files:
     print(f"\nComputing Geometric Lens Calibration from {len(calib_files)} target image(s)...")
-    ret, mtx, dist, rvecs, tvecs = aruco.calibrateCameraCharuco(
-        charucoCorners=all_charuco_corners, charucoIds=all_charuco_ids, board=board,
-        imageSize=image_size, cameraMatrix=None, distCoeffs=None
-    )
+    
+    # Backward/Forward compatible Camera Calibration
+    if hasattr(aruco, 'calibrateCameraCharuco'):
+        ret, mtx, dist, rvecs, tvecs = aruco.calibrateCameraCharuco(
+            charucoCorners=all_charuco_corners, charucoIds=all_charuco_ids, board=board,
+            imageSize=image_size, cameraMatrix=None, distCoeffs=None
+        )
+    else:
+        all_obj_points, all_img_points = [], []
+        for c_corners, c_ids in zip(all_charuco_corners, all_charuco_ids):
+            if c_corners is not None and len(c_corners) > 3:
+                obj_pts, img_pts = board.matchImagePoints(c_corners, c_ids)
+                if len(obj_pts) > 3 and len(img_pts) > 3:
+                    all_obj_points.append(obj_pts)
+                    all_img_points.append(img_pts)
+                    
+        ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(
+            all_obj_points, all_img_points, image_size, None, None
+        )
+        
     print("  -> Geometric distortion map built successfully.")
     
     img = cv.imread(calib_files[0])
@@ -286,7 +302,7 @@ if calib_files:
         print(f"  -> Dynamic Scale Established: {dynamic_px_per_cm:.2f} pixels/cm")
 else:
     print("\n[WARNING] No ChArUco board found. Processing raw images.")
-    
+        
 # --- MANUAL PETIOLE SELECTOR ---
 def select_manual_petiole(img, cnt, sf):
     print("  -> Opening Manual Petiole Selector...")
