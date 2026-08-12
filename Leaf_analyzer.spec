@@ -20,7 +20,7 @@ a = Analysis(
         'pydoc', 'unittest'
     ],
     noarchive=False,
-    optimize=2, # Strip docstrings to compress bytecode
+    optimize=0, # Strip docstrings to compress bytecode
 )
 pyz = PYZ(a.pure)
 

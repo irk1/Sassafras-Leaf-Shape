@@ -9,6 +9,7 @@ import csv
 from PIL import Image
 import argparse
 from datetime import datetime
+import sys
 
 # --- RUNTIME ARGUMENTS ---
 parser = argparse.ArgumentParser(description="Leaf Morphometrics Analysis with Auto-Calibration & Standalone Targets")
@@ -203,7 +204,7 @@ if args.generate_targets:
     print(f"[SAVED] standalone_scale_strips_{args.paper_size}.png")
     
     print("\nTarget generation complete! Print PNGs at 100% scale (No 'Fit to Page'). Exiting.")
-    exit(0)
+    sys.exit(0)
 
 # =====================================================================
 # MAIN PROCESSING WORKFLOW
