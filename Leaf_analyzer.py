@@ -231,20 +231,27 @@ for fname in valid_files:
     if img is None: continue
     
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    corners, ids, rejected = detector.detectMarkers(gray)
     
-    if ids is not None and len(ids) >= 4:
-        res = aruco.interpolateCornersCharuco(corners, ids, gray, board)
-        charuco_corners = res[1] if len(res) > 1 else None
-        charuco_ids = res[2] if len(res) > 2 else None
-        
-        if charuco_corners is not None and len(charuco_corners) > 3:
-            all_charuco_corners.append(charuco_corners)
-            all_charuco_ids.append(charuco_ids)
-            calib_files.append(fname)
-            if image_size is None:
-                image_size = gray.shape[::-1]
-            print(f"  -> Detected Calibration Board in: {os.path.basename(fname)}")
+    # Backward/Forward compatible ChArUco detection
+    if hasattr(aruco, 'CharucoDetector'):
+        charuco_detector = aruco.CharucoDetector(board)
+        charuco_corners, charuco_ids, _, _ = charuco_detector.detectBoard(gray)
+    else:
+        corners, ids, rejected = detector.detectMarkers(gray)
+        if ids is not None and len(ids) >= 4:
+            res = aruco.interpolateCornersCharuco(corners, ids, gray, board)
+            charuco_corners = res[1] if len(res) > 1 else None
+            charuco_ids = res[2] if len(res) > 2 else None
+        else:
+            charuco_corners, charuco_ids = None, None
+    
+    if charuco_ids is not None and len(charuco_ids) > 3:
+        all_charuco_corners.append(charuco_corners)
+        all_charuco_ids.append(charuco_ids)
+        calib_files.append(fname)
+        if image_size is None:
+            image_size = gray.shape[::-1]
+        print(f"  -> Detected Calibration Board in: {os.path.basename(fname)}")
     else:
         leaf_files.append(fname)
 
@@ -264,9 +271,14 @@ if calib_files:
     undistorted_calib = cv.undistort(img, mtx, dist, None, newcameramtx)
     
     gray_undistorted = cv.cvtColor(undistorted_calib, cv.COLOR_BGR2GRAY)
-    corners, ids, rejected = detector.detectMarkers(gray_undistorted)
-    res = aruco.interpolateCornersCharuco(corners, ids, gray_undistorted, board)
-    c_corners = res[1] if len(res) > 1 else None
+    
+    if hasattr(aruco, 'CharucoDetector'):
+        charuco_detector = aruco.CharucoDetector(board)
+        c_corners, _, _, _ = charuco_detector.detectBoard(gray_undistorted)
+    else:
+        corners, ids, rejected = detector.detectMarkers(gray_undistorted)
+        res = aruco.interpolateCornersCharuco(corners, ids, gray_undistorted, board)
+        c_corners = res[1] if len(res) > 1 else None
     
     if c_corners is not None and len(c_corners) >= 2:
         pixel_distance = np.linalg.norm(c_corners[0][0] - c_corners[1][0])
@@ -274,7 +286,7 @@ if calib_files:
         print(f"  -> Dynamic Scale Established: {dynamic_px_per_cm:.2f} pixels/cm")
 else:
     print("\n[WARNING] No ChArUco board found. Processing raw images.")
-
+    
 # --- MANUAL PETIOLE SELECTOR ---
 def select_manual_petiole(img, cnt, sf):
     print("  -> Opening Manual Petiole Selector...")
