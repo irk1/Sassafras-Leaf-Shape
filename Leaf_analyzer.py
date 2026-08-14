@@ -1,21 +1,21 @@
-import numpy as np
+import argparse
+import csv
+from datetime import datetime
+import glob
+import hashlib
+import os
+import sys
 import cv2 as cv
 from cv2 import aruco
 from matplotlib import pyplot as plt
-import glob
-import os
-import hashlib
-import csv
+import numpy as np
 from PIL import Image
-import argparse
-from datetime import datetime
-import sys
 
 # --- RUNTIME ARGUMENTS ---
 parser = argparse.ArgumentParser(description="Leaf Morphometrics Analysis with Auto-Calibration & Standalone Targets")
 parser.add_argument('--generate-targets', action='store_true', help="Generate printable ChArUco board, background grid, and standalone scale strips, then exit")
-parser.add_argument('--paper-size', choices=['letter', 'a4', 'arch_d'], default='letter', 
-                    help="Target paper size: 'letter'/'a4' for HP LaserJet M479fdw, 'arch_d' (24x36 in) for Canon TA-30")
+parser.add_argument('--paper-size', choices=['letter', 'a4', 'arch_d', '18x18'], default='letter', 
+                    help="Target paper size: 'letter'/'a4', 'arch_d' (24x36 in), or '18x18' (18x18 full canvas)")
 parser.add_argument('--petiole', action='store_true', help="Enable advanced automatic petiole tracking")
 parser.add_argument('--manual-petiole', action='store_true', help="Enable manual point selection for petiole tracking")
 parser.add_argument('--show', action='store_true', help="Display annotated images in popup windows")
@@ -23,10 +23,16 @@ parser.add_argument('--new-csv', action='store_true', help="Generate a new times
 args = parser.parse_args()
 
 # --- CONFIGURATION & CALIBRATION SETUP ---
-SQUARES_X = 7
-SQUARES_Y = 5
 SQUARE_LENGTH_MM = 30.0 
 MARKER_LENGTH_MM = 22.0
+
+# Keep full 15x15 squares for 18x18 board mode
+if args.paper_size == '18x18':
+    SQUARES_X = int((18.0 * 25.4) / SQUARE_LENGTH_MM)  # 15
+    SQUARES_Y = int((18.0 * 25.4) / SQUARE_LENGTH_MM)  # 15
+else:
+    SQUARES_X = 7
+    SQUARES_Y = 5
 
 dictionary = aruco.getPredefinedDictionary(aruco.DICT_6X6_250)
 board = aruco.CharucoBoard((SQUARES_X, SQUARES_Y), SQUARE_LENGTH_MM, MARKER_LENGTH_MM, dictionary)
@@ -45,32 +51,59 @@ if args.generate_targets:
     px_per_mm = DPI / 25.4
     px_per_cm = DPI / 2.54
     
+    header_mm = 30.0
+    header_px = int(header_mm * px_per_mm)
+    
     if args.paper_size == 'letter':
         page_w_in, page_h_in = 8.5, 11.0
+        page_w_px = int(page_w_in * DPI)
+        page_h_px = int(page_h_in * DPI)
     elif args.paper_size == 'a4':
         page_w_in, page_h_in = 8.27, 11.69
+        page_w_px = int(page_w_in * DPI)
+        page_h_px = int(page_h_in * DPI)
     elif args.paper_size == 'arch_d': 
         page_w_in, page_h_in = 24.0, 36.0
+        page_w_px = int(page_w_in * DPI)
+        page_h_px = int(page_h_in * DPI)
+    elif args.paper_size == '18x18':
+        page_w_in, page_h_in = 18.0, 18.0
+        page_w_px = int(page_w_in * DPI)
+        # Tack the header on top of the 18x18 inch image height
+        page_h_px = int(page_h_in * DPI) + header_px
 
-    page_w_px = int(page_w_in * DPI)
-    page_h_px = int(page_h_in * DPI)
-    margin_px = int(0.35 * DPI) # HP LaserJet unprintable safety margin
+    margin_px = 0 if args.paper_size == '18x18' else int(0.35 * DPI) 
     
     # -----------------------------------------------------------------
     # 1. CHARUCO BOARD
     # -----------------------------------------------------------------
-    board_w_px = page_w_px - (2 * margin_px)
-    board_h_px = page_h_px - (2 * margin_px) - int(30 * px_per_mm)
+    if args.paper_size == '18x18':
+        board_w_px = int(SQUARES_X * SQUARE_LENGTH_MM * px_per_mm)
+        board_h_px = int(SQUARES_Y * SQUARE_LENGTH_MM * px_per_mm)
+    else:
+        board_w_px = page_w_px - (2 * margin_px)
+        board_h_px = page_h_px - (2 * margin_px) - int(30 * px_per_mm)
     
     charuco_render = board.generateImage((board_w_px, board_h_px), marginSize=0)
     charuco_bgr = cv.cvtColor(charuco_render, cv.COLOR_GRAY2BGR)
     
     canvas_board = np.ones((page_h_px, page_w_px, 3), dtype=np.uint8) * 255
-    y_offset = margin_px + int(25 * px_per_mm)
-    canvas_board[y_offset:y_offset + board_h_px, margin_px:margin_px + board_w_px] = charuco_bgr
     
-    ruler_start_x = margin_px
-    ruler_y = margin_px + int(10 * px_per_mm)
+    if args.paper_size == '18x18':
+        x_offset = (page_w_px - board_w_px) // 2
+        y_offset = header_px  # Full 15x15 board starts immediately below the top header
+    else:
+        x_offset = margin_px
+        y_offset = margin_px + int(25 * px_per_mm)
+        
+    canvas_board[y_offset:y_offset + board_h_px, x_offset:x_offset + board_w_px] = charuco_bgr
+    
+    ruler_start_x = max(20, x_offset)
+    if args.paper_size == '18x18':
+        ruler_y = header_px // 2  # Centered inside the tacked-on top header band
+    else:
+        ruler_y = max(35, margin_px + int(10 * px_per_mm))
+        
     ruler_len_100mm_px = int(100.0 * px_per_mm)
     
     cv.line(canvas_board, (ruler_start_x, ruler_y), (ruler_start_x + ruler_len_100mm_px, ruler_y), (0, 0, 0), 4)
@@ -78,7 +111,7 @@ if args.generate_targets:
     cv.line(canvas_board, (ruler_start_x + ruler_len_100mm_px, ruler_y - 15), (ruler_start_x + ruler_len_100mm_px, ruler_y + 15), (0, 0, 0), 4)
     
     cv.putText(canvas_board, f"CHARUCO BOARD [{args.paper_size.upper()}] - CALIPER VERIFICATION: 100.0 mm", 
-               (ruler_start_x, ruler_y - 25), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+               (ruler_start_x, max(20, ruler_y - 20)), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
     
     cv.imwrite(f"charuco_board_{args.paper_size}.png", canvas_board)
     print(f"[SAVED] charuco_board_{args.paper_size}.png")
@@ -90,7 +123,7 @@ if args.generate_targets:
     color_minor, color_major, color_text = (255, 220, 180), (230, 170, 100), (180, 120, 50)
     
     grid_x_start = margin_px
-    grid_y_start = margin_px + int(25 * px_per_mm)
+    grid_y_start = header_px if args.paper_size == '18x18' else margin_px + int(25 * px_per_mm)
     grid_w_px = page_w_px - (2 * margin_px)
     grid_h_px = page_h_px - grid_y_start - margin_px
     
@@ -110,15 +143,15 @@ if args.generate_targets:
         cv.line(canvas_grid, (grid_x_start, y_pos), (grid_x_start + grid_w_px, y_pos), color_major if i % 5 == 0 else color_minor, thickness)
 
     for i in range(1, max_cm_x + 1):
-        cv.putText(canvas_grid, f"{i}", (grid_x_start + int(i * px_per_cm) - 12, grid_y_start - 10), cv.FONT_HERSHEY_SIMPLEX, 0.6, color_text, 2)
+        cv.putText(canvas_grid, f"{i}", (grid_x_start + int(i * px_per_cm) - 12, max(20, grid_y_start - 10)), cv.FONT_HERSHEY_SIMPLEX, 0.6, color_text, 2)
     for i in range(1, max_cm_y + 1):
-        cv.putText(canvas_grid, f"{i}", (grid_x_start - 35, grid_y_start + int(i * px_per_cm) + 8), cv.FONT_HERSHEY_SIMPLEX, 0.6, color_text, 2)
+        cv.putText(canvas_grid, f"{i}", (max(10, grid_x_start - 35), grid_y_start + int(i * px_per_cm) + 8), cv.FONT_HERSHEY_SIMPLEX, 0.6, color_text, 2)
 
     cv.line(canvas_grid, (ruler_start_x, ruler_y), (ruler_start_x + ruler_len_100mm_px, ruler_y), (0, 0, 0), 4)
     cv.line(canvas_grid, (ruler_start_x, ruler_y - 15), (ruler_start_x, ruler_y + 15), (0, 0, 0), 4)
     cv.line(canvas_grid, (ruler_start_x + ruler_len_100mm_px, ruler_y - 15), (ruler_start_x + ruler_len_100mm_px, ruler_y + 15), (0, 0, 0), 4)
     cv.putText(canvas_grid, f"2-AXIS GRID [{args.paper_size.upper()}] - CALIPER VERIFICATION: 100.0 mm", 
-               (ruler_start_x, ruler_y - 25), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+               (ruler_start_x, max(20, ruler_y - 20)), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
 
     cv.imwrite(f"2_axis_scale_background_{args.paper_size}.png", canvas_grid)
     print(f"[SAVED] 2_axis_scale_background_{args.paper_size}.png")
@@ -127,26 +160,20 @@ if args.generate_targets:
     # 3. INDEPENDENT CUT-OUT SCALE STRIPS & CARDS
     # -----------------------------------------------------------------
     canvas_strips = np.ones((page_h_px, page_w_px, 3), dtype=np.uint8) * 255
+    strip_margin_px = int(0.35 * DPI)
     
-    # Page Header
     cv.putText(canvas_strips, f"CUT-OUT STANDALONE SCALE CARDS [{args.paper_size.upper()}] - VERIFY WITH CALIPERS PRIOR TO USE", 
-               (margin_px, margin_px + 30), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+               (strip_margin_px, strip_margin_px + 30), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
     
-    # Function to draw a 150mm linear scale card
     def draw_scale_card(img, start_x, start_y):
         card_w_mm, card_h_mm = 170, 40
         w_px, h_px = int(card_w_mm * px_per_mm), int(card_h_mm * px_per_mm)
-        
-        # Dashed border for cutting out
         cv.rectangle(img, (start_x, start_y), (start_x + w_px, start_y + h_px), (180, 180, 180), 2)
         
         ruler_x = start_x + int(10 * px_per_mm)
         base_y = start_y + int(25 * px_per_mm)
-        
-        # Main baseline (150 mm long)
         cv.line(img, (ruler_x, base_y), (ruler_x + int(150 * px_per_mm), base_y), (0, 0, 0), 3)
         
-        # Ticks & labels
         for mm in range(151):
             tick_x = ruler_x + int(mm * px_per_mm)
             if mm % 10 == 0:
@@ -161,7 +188,6 @@ if args.generate_targets:
         cv.putText(img, "SCALE (cm)", (ruler_x, base_y + int(10 * px_per_mm)), cv.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
         cv.putText(img, "100.0mm Verification Line", (ruler_x + int(60 * px_per_mm), base_y + int(10 * px_per_mm)), cv.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
 
-    # Function to draw a 50mm 2-Axis Crosshair Scale Card
     def draw_crosshair_card(img, start_x, start_y):
         card_w_mm, card_h_mm = 80, 80
         w_px, h_px = int(card_w_mm * px_per_mm), int(card_h_mm * px_per_mm)
@@ -176,29 +202,22 @@ if args.generate_targets:
         for mm in range(-25, 26, 5):
             thickness = 2 if mm % 10 == 0 else 1
             length = int(6 * px_per_mm) if mm % 10 == 0 else int(3 * px_per_mm)
-            
-            # X Ticks
             tx = cx + int(mm * px_per_mm)
             cv.line(img, (tx, cy - length), (tx, cy + length), (0, 0, 0), thickness)
-            
-            # Y Ticks
             ty = cy + int(mm * px_per_mm)
             cv.line(img, (cx - length, ty), (cx + length, ty), (0, 0, 0), thickness)
 
-    # Tile multiple scale cards onto the sheet
-    y_cursor = margin_px + int(20 * px_per_mm)
+    y_cursor = strip_margin_px + int(20 * px_per_mm)
     card_spacing_y = int(48 * px_per_mm)
     
-    # Add 4 Linear Cards
     for k in range(4):
-        if y_cursor + card_spacing_y < page_h_px - margin_px:
-            draw_scale_card(canvas_strips, margin_px, y_cursor)
+        if y_cursor + card_spacing_y < page_h_px - strip_margin_px:
+            draw_scale_card(canvas_strips, strip_margin_px, y_cursor)
             y_cursor += card_spacing_y
 
-    # Add 2 Crosshair Cards side-by-side at the bottom
-    if y_cursor + int(85 * px_per_mm) < page_h_px - margin_px:
-        draw_crosshair_card(canvas_strips, margin_px, y_cursor)
-        draw_crosshair_card(canvas_strips, margin_px + int(85 * px_per_mm), y_cursor)
+    if y_cursor + int(85 * px_per_mm) < page_h_px - strip_margin_px:
+        draw_crosshair_card(canvas_strips, strip_margin_px, y_cursor)
+        draw_crosshair_card(canvas_strips, strip_margin_px + int(85 * px_per_mm), y_cursor)
 
     cv.imwrite(f"standalone_scale_strips_{args.paper_size}.png", canvas_strips)
     print(f"[SAVED] standalone_scale_strips_{args.paper_size}.png")
@@ -219,7 +238,7 @@ valid_files = [f for f in scan_files if f.lower().endswith(('.png', '.jpg', '.jp
 
 if not valid_files:
     print(f"Please place your leaf images and ChArUco calibration image(s) into the '{scan_folder}' folder.")
-    exit(1)
+    sys.exit(1)
 
 # --- PASS 1: GEOMETRIC CALIBRATION SEARCH ---
 print("\n--- Pass 1: Searching for ChArUco Calibration Target ---")
@@ -232,7 +251,6 @@ for fname in valid_files:
     
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
     
-    # Backward/Forward compatible ChArUco detection
     if hasattr(aruco, 'CharucoDetector'):
         charuco_detector = aruco.CharucoDetector(board)
         charuco_corners, charuco_ids, _, _ = charuco_detector.detectBoard(gray)
@@ -260,7 +278,6 @@ mtx, dist, dynamic_px_per_cm = None, None, None
 if calib_files:
     print(f"\nComputing Geometric Lens Calibration from {len(calib_files)} target image(s)...")
     
-    # Backward/Forward compatible Camera Calibration
     if hasattr(aruco, 'calibrateCameraCharuco'):
         ret, mtx, dist, rvecs, tvecs = aruco.calibrateCameraCharuco(
             charucoCorners=all_charuco_corners, charucoIds=all_charuco_ids, board=board,
@@ -302,7 +319,7 @@ if calib_files:
         print(f"  -> Dynamic Scale Established: {dynamic_px_per_cm:.2f} pixels/cm")
 else:
     print("\n[WARNING] No ChArUco board found. Processing raw images.")
-        
+
 # --- MANUAL PETIOLE SELECTOR ---
 def select_manual_petiole(img, cnt, sf):
     print("  -> Opening Manual Petiole Selector...")
@@ -358,36 +375,69 @@ for Source in leaf_files:
     font_scale_id = 0.55 * sf
     font_scale_metrics = 0.38 * sf 
 
-    # Masking out drop-out cyan lines / paper backgrounds
+    # --- ADVANCED APEX-PRESERVING & COLOR-AWARE SEGMENTATION ---
     lab = cv.cvtColor(img, cv.COLOR_BGR2LAB)
-    l_channel = cv.split(lab)[0]
-    _, mask_luminance = cv.threshold(l_channel, 185, 255, cv.THRESH_BINARY_INV)
-    
     hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
-    v_channel = cv.split(hsv)[2]
-    _, mask_value = cv.threshold(v_channel, 190, 255, cv.THRESH_BINARY_INV)
     
-    combined_mask = cv.bitwise_or(mask_luminance, mask_value)
-    kernel_clean = cv.getStructuringElement(cv.MORPH_ELLIPSE, (7, 7))
-    mask_clean = cv.morphologyEx(combined_mask, cv.MORPH_OPEN, kernel_clean)
+    l_channel = lab[:, :, 0]
+    b_channel = lab[:, :, 2]
+    s_channel = hsv[:, :, 1]
+    
+    l_work = l_channel.copy()
+    l_work[l_channel < 25] = 255
+    
+    l_blur = cv.GaussianBlur(l_work, (5, 5), 0)
+    _, mask_lum = cv.threshold(l_blur, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU)
+    
+    mask_yellow_tip = (b_channel > 135) & (s_channel > 20) & (l_channel < 240)
+    mask_color = np.zeros_like(l_channel, dtype=np.uint8)
+    mask_color[mask_yellow_tip] = 255
+    
+    binary = cv.bitwise_or(mask_lum, mask_color)
+    
+    h_m, w_m = binary.shape[:2]
+    border_px = max(15, int(min(h_m, w_m) * 0.02))
+    
+    binary[:border_px, :] = 0
+    binary[-border_px:, :] = 0
+    binary[:, :border_px] = 0
+    binary[:, -border_px:] = 0
+    
+    kernel_clean = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
+    mask_clean = cv.morphologyEx(binary, cv.MORPH_OPEN, kernel_clean)
     mask_clean = cv.morphologyEx(mask_clean, cv.MORPH_CLOSE, kernel_clean)
     
     contours, _ = cv.findContours(mask_clean, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=cv.contourArea, reverse=True)
-    min_area = (img.shape[0] * img.shape[1]) * 0.005 
+    
+    min_area = (h_m * w_m) * 0.005
+    max_area = (h_m * w_m) * 0.80
     
     print(f"\n--- Processing Leaf: {filename} ({pixels_per_cm:.2f} px/cm) ---")
     
+    valid_leaf_found = False
+    
     for cnt in contours:
         area_px = cv.contourArea(cnt)
-        if area_px < min_area: continue
+        if area_px < min_area or area_px > max_area:
+            continue
             
+        x_c, y_c, w_c, h_c = cv.boundingRect(cnt)
+        if x_c <= border_px or y_c <= border_px or (x_c + w_c) >= (w_m - border_px) or (y_c + h_c) >= (h_m - border_px):
+            print(f"  -> Skipping border-touching artifact contour ({int(area_px)} px)")
+            continue
+
+        epsilon = 0.0002 * cv.arcLength(cnt, True)
+        cnt = cv.approxPolyDP(cnt, epsilon, True)
+
+        valid_leaf_found = True
+
         perimeter_px = cv.arcLength(cnt, True)
         pixel_edge_area_ratio = perimeter_px / area_px if area_px > 0 else 0
         
         M = cv.moments(cnt)
         cX = int(M["m10"] / M["m00"]) if M["m00"] != 0 else cv.boundingRect(cnt)[0] + cv.boundingRect(cnt)[2] // 2
-        cY = int(M["m01"] / M["m00"]) if M["m00"] != 0 else cv.boundingRect(cnt)[1] + cv.boundingRect(cnt)[3] // 2
+        cY = int(M["m01"] / M["m00"]) if M["m01"] != 0 else cv.boundingRect(cnt)[1] + cv.boundingRect(cnt)[3] // 2
         com = np.array([cX, cY], dtype=np.float32)
         
         rect = cv.minAreaRect(cnt)
@@ -452,7 +502,7 @@ for Source in leaf_files:
                 for i in range(1, max_search):
                     idx_A = (idx_petiole_end + i) % N
                     pt_A = cnt_points[idx_A]
-                    best_j_offset, min_w = curr_idx_B_offset, float('inf')
+                    best_j_offset, min_w = float('inf'), curr_idx_B_offset
                     
                     for j in range(max(1, curr_idx_B_offset - 15), min(max_search, curr_idx_B_offset + 35)):
                         w = np.linalg.norm(pt_A - cnt_points[(idx_petiole_end - j) % N])
@@ -560,10 +610,13 @@ for Source in leaf_files:
             'Physical_Edge_Area_Ratio_cm1': round(physical_edge_area_ratio, 4), 'Degree_of_Lobing': round(blade_degree_of_lobing, 6)
         })
 
+    if not valid_leaf_found:
+        print(f"  [WARNING] No valid leaf contour detected in '{filename}'. Check thresholding settings.")
+
     annotated_path = os.path.join(annotated_folder, f"Annotated_{filename}")
     cv.imwrite(annotated_path, output_img)
 
-    if args.show:
+    if args.show and valid_leaf_found:
         plt.figure(figsize=(12, 10))
         plt.imshow(cv.cvtColor(output_img, cv.COLOR_BGR2RGB))
         plt.axis('off')
