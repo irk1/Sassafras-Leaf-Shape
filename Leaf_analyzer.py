@@ -20,6 +20,7 @@ parser.add_argument('--petiole', action='store_true', help="Enable advanced auto
 parser.add_argument('--manual-petiole', action='store_true', help="Enable manual point selection for petiole tracking")
 parser.add_argument('--show', action='store_true', help="Display annotated images in popup windows")
 parser.add_argument('--new-csv', action='store_true', help="Generate a new timestamped CSV instead of overwriting default")
+parser.add_argument('--dpi', type=int, default=None, help="Manually set/override the DPI for target generation and image analysis")
 args = parser.parse_args()
 
 # --- CONFIGURATION & CALIBRATION SETUP ---
@@ -47,7 +48,7 @@ Image.MAX_IMAGE_PIXELS = None
 if args.generate_targets:
     print(f"--- Generating Calibration Targets & Standalone Scales [{args.paper_size.upper()}] ---")
     
-    DPI = 300
+    DPI = args.dpi if args.dpi is not None else 300
     px_per_mm = DPI / 25.4
     px_per_cm = DPI / 2.54
     
@@ -353,7 +354,10 @@ for Source in leaf_files:
         if w_roi > 0 and h_roi > 0:
             img = img[y_roi:y_roi+h_roi, x_roi:x_roi+w_roi]
     
-    if dynamic_px_per_cm:
+    if args.dpi is not None:
+        dpi = args.dpi
+        pixels_per_cm = dpi / 2.54
+    elif dynamic_px_per_cm:
         pixels_per_cm = dynamic_px_per_cm
         dpi = int(pixels_per_cm * 2.54) 
     else:
